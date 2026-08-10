@@ -25,7 +25,7 @@
   <div class="container">
     <span class="badge">🎓 مصمَّمة للمعلمين وللمرشدين التربويين</span>
     <h1>اكسر الجمود، <span class="grad-text">وفعّل غرفتك الصفية</span> بألعاب تفاعلية</h1>
-    <p>مجموعة كبيرة من الألعاب التعليمية الحماسية — فردية وجماعية، تناسب جميع الأعمار وتصلح للذكور والإناث. ارفع مادتك التعليمية ودع الذكاء الاصطناعي يبني الأسئلة، أو أنشئها بنفسك بسهولة.</p>
+    <p>مجموعة كبيرة من الألعاب التعليمية الحماسية — فردية وجماعية، وحتى ألعاب منافسة لحظية يلعبها فريقان أو أكثر بنفس الوقت على نفس الشاشة. ألعاب عامة تناسب أي مادة، وأخرى مختصة بالرياضيات واللغات. ارفع مادتك التعليمية ودع الذكاء الاصطناعي يبني الأسئلة، أو أنشئها بنفسك بسهولة.</p>
     <div class="hero-actions">
       <a href="#games" class="btn btn-primary">🎮 استعرض الألعاب</a>
       <a href="questions.html" class="btn btn-outline">📚 إدارة بنك الأسئلة</a>
@@ -45,13 +45,7 @@
 </section>
 
 <section class="section" id="games">
-  <div class="container">
-    <div class="section-title">
-      <h2>🎮 مكتبة الألعاب</h2>
-      <p>اختر لعبة وابدأ خلال ثوانٍ</p>
-    </div>
-    <div class="games-grid" id="games-grid"></div>
-  </div>
+  <div class="container" id="games-sections"></div>
 </section>
 
 <section class="section">
@@ -72,31 +66,70 @@
 <script>
 EGL.seedIfEmpty();
 
-const GAMES = [
-  { href: 'games/quiz.html', cls: 'gc-1', emoji: '⚡', title: 'اختبار البرق', desc: 'أسئلة اختيار من متعدد بمؤقت زمني، فردي أو بالفرق، لمن يجيب أسرع وأصح.', tags: ['فردي', 'فرق', 'سرعة'] },
-  { href: 'games/wheel.html', cls: 'gc-2', emoji: '🎡', title: 'عجلة الحظ', desc: 'أدر العجلة لاختيار فئة السؤال أو تحدٍ عشوائي أو الفريق التالي في الدور.', tags: ['كسر جمود', 'الكل'] },
-  { href: 'games/team-battle.html', cls: 'gc-3', emoji: '🏆', title: 'معركة الفرق', desc: 'لوحة فئات ونقاط بأسلوب المسابقات التلفزيونية — فريقان يتنافسان لجمع أعلى نقاط.', tags: ['جماعي', 'تنافسي'] },
-  { href: 'games/memory.html', cls: 'gc-4', emoji: '🧠', title: 'لعبة الذاكرة', desc: 'اقلب البطاقات وطابق كل سؤال مع إجابته الصحيحة قبل نفاد الوقت.', tags: ['فردي', 'أزواج', 'تركيز'] },
-  { href: 'games/race.html', cls: 'gc-5', emoji: '🏁', title: 'سباق الإجابات', desc: 'كل إجابة صحيحة تدفع لاعبك للأمام على مسار السباق — أول من يصل يفوز!', tags: ['جماعي', 'حماسي'] },
-  { href: 'games/balloons.html', cls: 'gc-6', emoji: '🎈', title: 'فرقعة البالونات', desc: 'افرقع أكبر عدد من البالونات بالإجابة الصحيحة قبل نفاد الوقت.', tags: ['فردي', 'فرق', 'سرعة'] },
-  { href: 'games/hotseat.html', cls: 'gc-7', emoji: '🪑', title: 'الكرسي الساخن', desc: 'بطاقات تعارف وكسر جمود عشوائية بدون فوز أو خسارة — مثالية لبداية الحصة.', tags: ['كسر جمود', 'الكل'] },
-  { href: 'games/millionaire.html', cls: 'gc-8', emoji: '💎', title: 'سلّم النجاح', desc: 'سلّم أسئلة متصاعد الصعوبة بوسائل مساعدة — إلى أين ستصل؟', tags: ['فردي', 'فرق', 'تحدي'] },
-  { href: 'games/buzzer.html', cls: 'gc-9', emoji: '🔔', title: 'سباق الأجراس', desc: 'كل الفرق تقرأ السؤال معًا، وعند الانطلاق يتسابقون على الجرس — الأسرع يجيب أولًا! حماس لحظي مضمون.', tags: ['جديد 🔥', 'جماعي', 'في نفس الوقت'] },
-  { href: 'games/wordguess.html', cls: 'gc-10', emoji: '🧩', title: 'الكلمة السرية', desc: 'خمّنوا حروف الكلمة السرية بالتناوب قبل نفاد المحاولات — تشويق ومفردات جديدة.', tags: ['جديد 🔥', 'فردي', 'فرق'] },
+const SECTIONS = [
+  {
+    id: 'instant', title: '⚡ ألعاب المنافسة اللحظية (بنفس الوقت)',
+    desc: 'مجموعتان أو أكثر تلعب سويًا على نفس الشاشة في نفس اللحظة — بدون أدوار!',
+    games: [
+      { href: 'games/instant-duel.html', cls: 'gc-9', emoji: '⚡', title: 'المبارزة الفورية', desc: 'سؤال واحد يظهر للجميع، وكل فريق يجيب في منطقته الخاصة بنفس اللحظة — تعمل مع أي مادة.', tags: ['جديد 🔥', 'بنفس الوقت', 'كل المواد'] },
+      { href: 'games/buzzer.html', cls: 'gc-2', emoji: '🔔', title: 'سباق الأجراس', desc: 'الجميع يقرأ السؤال معًا، وعند الانطلاق يتسابقون على الجرس — الأسرع يجيب أولًا!', tags: ['جماعي', 'بنفس الوقت'] },
+      { href: 'games/math-flash.html', cls: 'gc-11', emoji: '⚖️', title: 'ميزان الأرقام', desc: 'معادلة تظهر للجميع، وكل فريق يضغط صح/خطأ في منطقته بنفس اللحظة.', tags: ['جديد 🔥', 'رياضيات', 'بنفس الوقت'] },
+    ]
+  },
+  {
+    id: 'general', title: '🎮 ألعاب عامة (تناسب أي مادة)',
+    desc: 'ابنِ بنك أسئلة لمادتك واستخدمه في أي من هذه الألعاب',
+    games: [
+      { href: 'games/quiz.html', cls: 'gc-1', emoji: '⚡', title: 'اختبار البرق', desc: 'أسئلة اختيار من متعدد بمؤقت زمني، فردي أو بالفرق.', tags: ['فردي', 'فرق'] },
+      { href: 'games/wheel.html', cls: 'gc-2', emoji: '🎡', title: 'عجلة الحظ', desc: 'أدر العجلة لاختيار فئة السؤال القادم.', tags: ['كسر جمود'] },
+      { href: 'games/team-battle.html', cls: 'gc-3', emoji: '🏆', title: 'معركة الفرق', desc: 'لوحة فئات ونقاط بأسلوب المسابقات التلفزيونية.', tags: ['جماعي'] },
+      { href: 'games/memory.html', cls: 'gc-4', emoji: '🧠', title: 'لعبة الذاكرة', desc: 'طابقوا كل سؤال مع إجابته الصحيحة.', tags: ['فردي', 'تركيز'] },
+      { href: 'games/race.html', cls: 'gc-5', emoji: '🏁', title: 'سباق الإجابات', desc: 'كل إجابة صحيحة تدفعكم للأمام على المسار.', tags: ['جماعي', 'حماسي'] },
+      { href: 'games/balloons.html', cls: 'gc-6', emoji: '🎈', title: 'فرقعة البالونات', desc: 'افرقعوا أكبر عدد من البالونات بالإجابة الصحيحة.', tags: ['فردي', 'سرعة'] },
+      { href: 'games/hotseat.html', cls: 'gc-7', emoji: '🪑', title: 'الكرسي الساخن', desc: 'بطاقات تعارف وكسر جمود بدون فوز أو خسارة.', tags: ['كسر جمود'] },
+      { href: 'games/millionaire.html', cls: 'gc-8', emoji: '💎', title: 'سلّم النجاح', desc: 'أسئلة متصاعدة الصعوبة مع وسيلتي مساعدة.', tags: ['تحدي'] },
+      { href: 'games/wordguess.html', cls: 'gc-10', emoji: '🧩', title: 'الكلمة السرية', desc: 'خمّنوا حروف الكلمة السرية قبل نفاد المحاولات.', tags: ['فردي', 'فرق'] },
+    ]
+  },
+  {
+    id: 'math', title: '🧮 ألعاب مختصة بالرياضيات',
+    desc: 'مسائل تُولَّد تلقائيًا حسب مستوى الصعوبة — لا تحتاج بنك أسئلة',
+    games: [
+      { href: 'games/math-race.html', cls: 'gc-12', emoji: '🧮', title: 'سباق الأرقام', desc: 'حلّوا المسائل الحسابية بسرعة لتتقدموا في السباق.', tags: ['جديد 🔥', 'رياضيات'] },
+      { href: 'games/math-order.html', cls: 'gc-13', emoji: '🔢', title: 'برج الترتيب', desc: 'رتّبوا الأعداد تصاعديًا أو تنازليًا بأسرع وقت وأقل خطأ.', tags: ['جديد 🔥', 'رياضيات'] },
+      { href: 'games/math-flash.html', cls: 'gc-11', emoji: '⚖️', title: 'ميزان الأرقام', desc: 'صح أو خطأ بنفس الوقت بين الفرق — انظر قسم المنافسة اللحظية.', tags: ['رياضيات', 'بنفس الوقت'] },
+    ]
+  },
+  {
+    id: 'lang', title: '🔤 ألعاب مختصة باللغات (عربي / إنجليزي)',
+    desc: 'استخدم بنك أسئلة تكون فيه الإجابات كلمات — الألعاب تبني نفسها تلقائيًا',
+    games: [
+      { href: 'games/word-builder.html', cls: 'gc-14', emoji: '🔤', title: 'بناء الكلمات', desc: 'رتّبوا الحروف المبعثرة لتكوين الكلمة الصحيحة.', tags: ['جديد 🔥', 'لغات'] },
+      { href: 'games/spelling-bee.html', cls: 'gc-15', emoji: '🐝', title: 'نحلة الإملاء', desc: 'احفظوا التهجئة الصحيحة قبل أن تختفي الكلمة.', tags: ['جديد 🔥', 'لغات'] },
+      { href: 'games/sentence-fill.html', cls: 'gc-16', emoji: '📝', title: 'أكمل الجملة', desc: 'اسحبوا الكلمة الصحيحة لوضعها في الفراغ المناسب.', tags: ['جديد 🔥', 'لغات'] },
+    ]
+  },
 ];
 
-document.getElementById('games-grid').innerHTML = GAMES.map(g => `
-  <a class="game-card ${g.cls}" href="${g.href}">
-    <div>
-      <div class="emoji">${g.emoji}</div>
-      <h3>${g.title}</h3>
-      <p>${g.desc}</p>
+document.getElementById('games-sections').innerHTML = SECTIONS.map(sec => `
+  <div class="games-section" id="${sec.id}">
+    <div class="section-title"><h2>${sec.title}</h2><p>${sec.desc}</p></div>
+    <div class="games-grid">
+      ${sec.games.map(g => `
+        <a class="game-card ${g.cls}" href="${g.href}">
+          <div>
+            <div class="emoji">${g.emoji}</div>
+            <h3>${g.title}</h3>
+            <p>${g.desc}</p>
+          </div>
+          <div>
+            <div class="tags">${g.tags.map(t => `<span class="tag">${t}</span>`).join('')}</div>
+            <span class="btn btn-accent btn-sm play-btn">العب الآن ▶</span>
+          </div>
+        </a>
+      `).join('')}
     </div>
-    <div>
-      <div class="tags">${g.tags.map(t => `<span class="tag">${t}</span>`).join('')}</div>
-      <span class="btn btn-accent btn-sm play-btn">العب الآن ▶</span>
-    </div>
-  </a>
+  </div>
 `).join('');
 </script>
 </body>

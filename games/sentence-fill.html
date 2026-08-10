@@ -1,0 +1,143 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>أكمل الجملة — ساحة الصف</title>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>📝</text></svg>">
+<link rel="stylesheet" href="../css/style.css">
+<style>
+  .sentence{ font-size:1.5rem; font-weight:800; text-align:center; line-height:2.4; margin: 18px 0; }
+  .blank-target{ display:inline-flex; align-items:center; justify-content:center; min-width:110px; padding:6px 14px; border-bottom:3px dashed var(--primary); color: var(--accent-2); font-weight:900; margin: 0 6px; }
+  .blank-target.filled{ border-bottom-style: solid; border-color: var(--success); }
+  .word-bank{ display:flex; flex-wrap:wrap; gap:12px; justify-content:center; margin-top:20px; }
+  .word-chip{ padding:14px 22px; border-radius:14px; background: var(--surface-2); font-weight:800; font-size:1.05rem; cursor:pointer; border:3px solid transparent; transition:.15s; }
+  .word-chip:hover{ transform: translateY(-3px); border-color: var(--primary); }
+  .word-chip.wrong-flash{ background: rgba(255,92,92,.35); border-color: var(--danger); }
+  .word-chip.used{ visibility:hidden; }
+</style>
+</head>
+<body>
+<nav class="topnav"><div class="container">
+  <a class="brand" href="../index.html"><span class="logo">🎲</span> ساحة الصف</a>
+  <div class="navlinks"><a href="../index.html">الرئيسية</a><a href="../index.html#games">الألعاب</a><a href="../questions.html">بنك الأسئلة</a></div>
+</div></nav>
+
+<div class="game-shell">
+  <div class="game-header container">
+    <h1>📝 أكمل الجملة</h1>
+    <p>اسحبوا (أو اضغطوا) الكلمة الصحيحة لوضعها في الفراغ المناسب!</p>
+  </div>
+  <div class="game-stage container" id="stage"></div>
+</div>
+
+<script src="../js/common.js"></script>
+<script>
+const ROUNDS = 8;
+let sb, players, activeI, pool, poolIdx, round, current, roundStart;
+
+function init(){
+  const stage = document.getElementById('stage');
+  stage.innerHTML = `<div class="empty-state"><div class="emoji">📝</div><h3>هيّئ اللعبة</h3><p>نصيحة: اكتب أسئلتك بصيغة جملة فيها فراغ "___" ليحل مكانه الجواب، مثل: "عاصمة الأردن هي ___".</p>
+    <button class="btn btn-primary" id="btn-setup">ابدأ الإعداد 🎮</button></div>`;
+  document.getElementById('btn-setup').addEventListener('click', openSetup);
+  openSetup();
+}
+function openSetup(){
+  EGL.openSetupModal({ title:'إعداد أكمل الجملة', allowIndividual:true, allowTeams:true, needQuestions:true }, startGame);
+}
+
+function startGame(cfg){
+  const bank = EGL.getBank(cfg.bankId);
+  const eligible = bank.questions.filter(q => q.answerText && q.answerText.trim());
+  if(eligible.length < 4){ EGL.toast('تحتاج هذه اللعبة ٤ أسئلة على الأقل ذات إجابات نصية — أضف المزيد للبنك'); return; }
+  pool = EGL.shuffle(eligible);
+  window._allAnswers = eligible.map(q => q.answerText.trim());
+  poolIdx = 0;
+  players = cfg.players;
+  activeI = 0;
+  round = 0;
+  const stage = document.getElementById('stage');
+  stage.innerHTML = `<div id="sb-wrap" class="scoreboard"></div><div id="round-badge" class="badge" style="display:block; text-align:center; margin-bottom:10px;"></div><div id="game-area"></div>`;
+  sb = new EGL.Scoreboard(document.getElementById('sb-wrap'), players);
+  nextRound();
+}
+
+function nextRound(){
+  round++;
+  if(round > ROUNDS || poolIdx >= pool.length){ showResults(); return; }
+  current = pool[poolIdx++];
+  document.getElementById('round-badge').textContent = `📝 الجولة ${round} / ${Math.min(ROUNDS, pool.length)}`;
+  renderRound();
+}
+
+function renderRound(){
+  const secret = current.answerText.trim();
+  const others = EGL.shuffle(window._allAnswers.filter(a => a !== secret && a.trim()));
+  const uniqueOthers = Array.from(new Set(others)).slice(0, 3);
+  let decoys = uniqueOthers;
+  if(decoys.length < 3) decoys = decoys.concat(EGL.spellingDecoys(secret, 3 - decoys.length));
+  const options = EGL.shuffle([secret, ...decoys]);
+  roundStart = performance.now();
+
+  let sentenceHtml;
+  if(current.text.includes('___')){
+    const parts = current.text.split('___');
+    sentenceHtml = parts.map(p=>EGL.escapeHtml(p)).join(`<span class="blank-target" id="blank-target">؟</span>`);
+  } else {
+    sentenceHtml = EGL.escapeHtml(current.text) + ` <span class="blank-target" id="blank-target">؟</span>`;
+  }
+
+  const area = document.getElementById('game-area');
+  area.innerHTML = `
+    <div class="qcard">
+      <p>دور: <strong style="color:var(--accent-2)">${players[activeI].emoji} ${EGL.escapeHtml(players[activeI].name)}</strong></p>
+      <div class="sentence">${sentenceHtml}</div>
+      <div class="word-bank" id="word-bank"></div>
+    </div>`;
+  const bank = document.getElementById('word-bank');
+  bank.innerHTML = options.map(o => `<div class="word-chip" data-w="${EGL.escapeHtml(o)}">${EGL.escapeHtml(o)}</div>`).join('');
+  bank.querySelectorAll('.word-chip').forEach(chip => chip.addEventListener('click', () => placeWord(chip, secret)));
+}
+
+function placeWord(chip, secret){
+  const word = chip.dataset.w;
+  const target = document.getElementById('blank-target');
+  if(word === secret){
+    target.textContent = word;
+    target.classList.add('filled');
+    chip.classList.add('used');
+    document.querySelectorAll('.word-chip').forEach(c=>c.style.pointerEvents='none');
+    const elapsed = (performance.now() - roundStart)/1000;
+    const bonus = Math.max(0, Math.round(8 - elapsed));
+    sb.addScore(activeI, 12 + bonus);
+    EGL.beep('correct'); EGL.confetti(35);
+  } else {
+    chip.classList.add('wrong-flash');
+    EGL.beep('wrong');
+    setTimeout(()=> chip.classList.remove('wrong-flash'), 400);
+    return;
+  }
+  setTimeout(()=>{ activeI = (activeI+1) % players.length; nextRound(); }, 1600);
+}
+
+function showResults(){
+  EGL.confetti(100); EGL.beep('win');
+  const ranking = sb.ranking();
+  const stage = document.getElementById('stage');
+  stage.innerHTML = `<div class="qcard">
+    <div style="font-size:3rem;">🏆</div><h2>انتهت الجولات!</h2>
+    <div class="scoreboard" style="justify-content:center;">
+      ${ranking.map((p,r)=>`<div class="player-chip ${r===0?'active':''}"><div style="font-size:1.4rem;">${r===0?'🥇':r===1?'🥈':r===2?'🥉':p.emoji}</div><div class="pname">${EGL.escapeHtml(p.name)}</div><div class="pscore">${p.score}</div></div>`).join('')}
+    </div>
+    <div style="display:flex; gap:10px; justify-content:center; margin-top:16px;">
+      <button class="btn btn-primary" onclick="location.reload()">🔁 لعب مرة أخرى</button>
+      <a class="btn btn-outline" href="../index.html">🏠 الألعاب الأخرى</a>
+    </div>
+  </div>`;
+}
+
+init();
+</script>
+</body>
+</html>

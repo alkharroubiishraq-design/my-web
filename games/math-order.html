@@ -1,0 +1,168 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>برج الترتيب — ساحة الصف</title>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>🔢</text></svg>">
+<link rel="stylesheet" href="../css/style.css">
+<style>
+  .numbers-row{ display:flex; flex-wrap:wrap; gap:14px; justify-content:center; margin: 20px 0; }
+  .num-tile{ width:74px; height:74px; border-radius:16px; background: var(--surface-2); display:flex; align-items:center; justify-content:center; font-size:1.5rem; font-weight:900; cursor:pointer; border:3px solid transparent; transition:.15s; position:relative; }
+  .num-tile:hover{ transform: translateY(-3px); border-color: var(--primary); }
+  .num-tile.locked{ background: rgba(43,224,138,.25); border-color: var(--success); cursor:default; }
+  .num-tile.locked:hover{ transform:none; }
+  .num-tile.wrong-flash{ background: rgba(255,92,92,.35); border-color: var(--danger); }
+  .num-tile .rank-badge{ position:absolute; top:-10px; right:-10px; background: var(--accent-2); color:#332400; font-size:.7rem; font-weight:900; border-radius:999px; width:22px; height:22px; display:flex; align-items:center; justify-content:center; }
+</style>
+</head>
+<body>
+<nav class="topnav"><div class="container">
+  <a class="brand" href="../index.html"><span class="logo">🎲</span> ساحة الصف</a>
+  <div class="navlinks"><a href="../index.html">الرئيسية</a><a href="../index.html#games">الألعاب</a><a href="../questions.html">بنك الأسئلة</a></div>
+</div></nav>
+
+<div class="game-shell">
+  <div class="game-header container">
+    <h1>🔢 برج الترتيب</h1>
+    <p>رتّبوا الأرقام تصاعديًا أو تنازليًا بأسرع وقت ممكن وبأقل عدد من الأخطاء!</p>
+  </div>
+  <div class="game-stage container" id="stage"></div>
+</div>
+
+<script src="../js/common.js"></script>
+<script>
+const ROUNDS = 8;
+let players, activeI, round, sb, difficulty, currentNums, sortedTarget, expectedIdx, mistakes, roundStart, direction;
+
+function init(){
+  const stage = document.getElementById('stage');
+  stage.innerHTML = `<div class="empty-state"><div class="emoji">🔢</div><h3>هيّئ اللعبة</h3><p>يمكن اللعب فرديًا بالتناوب أو بين عدة فرق.</p>
+    <button class="btn btn-primary" id="btn-setup">ابدأ الإعداد 🎮</button></div>`;
+  document.getElementById('btn-setup').addEventListener('click', openSetup);
+  openSetup();
+}
+function openSetup(){
+  EGL.openSetupModal({
+    title:'إعداد برج الترتيب', allowIndividual:true, allowTeams:true, skipBank:true,
+    extraFieldsHtml: `<label>مستوى الصعوبة</label><div class="chip-group" id="mo-diff-chips" style="margin-bottom:16px;">
+      <div class="chip selected" data-v="easy">سهل (١-٢٠)</div>
+      <div class="chip" data-v="medium">متوسط (١-١٠٠)</div>
+      <div class="chip" data-v="hard">صعب (بأعداد سالبة)</div>
+    </div>
+    <input type="hidden" id="mo-diff-value" data-extra="difficulty" value="easy">`
+  }, startGame);
+  const group = document.getElementById('mo-diff-chips');
+  const hidden = document.getElementById('mo-diff-value');
+  if(group){
+    group.querySelectorAll('.chip').forEach(c=>c.addEventListener('click', ()=>{
+      group.querySelectorAll('.chip').forEach(x=>x.classList.remove('selected'));
+      c.classList.add('selected');
+      hidden.value = c.dataset.v;
+    }));
+  }
+}
+
+function genNumbers(diff){
+  const count = diff === 'hard' ? 6 : 5;
+  const set = new Set();
+  while(set.size < count){
+    let n;
+    if(diff === 'easy') n = 1 + Math.floor(Math.random()*20);
+    else if(diff === 'medium') n = 1 + Math.floor(Math.random()*100);
+    else n = Math.floor(Math.random()*101) - 50;
+    set.add(n);
+  }
+  return Array.from(set);
+}
+
+function startGame(cfg){
+  players = cfg.players;
+  difficulty = cfg.extra.difficulty || 'easy';
+  activeI = 0;
+  round = 0;
+  const stage = document.getElementById('stage');
+  stage.innerHTML = `<div id="sb-wrap" class="scoreboard"></div><div id="round-badge" class="badge" style="display:block; text-align:center; margin-bottom:10px;"></div><div id="game-area"></div>`;
+  sb = new EGL.Scoreboard(document.getElementById('sb-wrap'), players);
+  nextRound();
+}
+
+function nextRound(){
+  round++;
+  if(round > ROUNDS){ showResults(); return; }
+  document.getElementById('round-badge').textContent = `🔢 الجولة ${round} / ${ROUNDS}`;
+  currentNums = genNumbers(difficulty);
+  direction = Math.random() < 0.5 ? 'asc' : 'desc';
+  sortedTarget = [...currentNums].sort((a,b)=> direction==='asc' ? a-b : b-a);
+  expectedIdx = 0;
+  mistakes = 0;
+  roundStart = performance.now();
+  renderRound();
+}
+
+function renderRound(){
+  const area = document.getElementById('game-area');
+  const shuffled = EGL.shuffle(currentNums);
+  area.innerHTML = `
+    <div class="qcard">
+      <div class="qmeta">
+        <span class="badge">${direction==='asc' ? '🔼 رتّب تصاعديًا (من الأصغر للأكبر)' : '🔽 رتّب تنازليًا (من الأكبر للأصغر)'}</span>
+      </div>
+      <p>دور: <strong style="color:var(--accent-2)">${players[activeI].emoji} ${EGL.escapeHtml(players[activeI].name)}</strong></p>
+      <div class="numbers-row" id="numbers-row"></div>
+    </div>`;
+  const row = document.getElementById('numbers-row');
+  row.innerHTML = shuffled.map(n => `<div class="num-tile" data-n="${n}">${n}</div>`).join('');
+  row.querySelectorAll('.num-tile').forEach(tile => tile.addEventListener('click', () => tapNumber(tile)));
+}
+
+function tapNumber(tile){
+  if(tile.classList.contains('locked')) return;
+  const n = parseInt(tile.dataset.n);
+  if(n === sortedTarget[expectedIdx]){
+    tile.classList.add('locked');
+    const badge = document.createElement('div');
+    badge.className = 'rank-badge';
+    badge.textContent = expectedIdx + 1;
+    tile.appendChild(badge);
+    EGL.beep('tick');
+    expectedIdx++;
+    if(expectedIdx === sortedTarget.length) roundComplete();
+  } else {
+    mistakes++;
+    tile.classList.add('wrong-flash');
+    EGL.beep('wrong');
+    setTimeout(()=> tile.classList.remove('wrong-flash'), 400);
+  }
+}
+
+function roundComplete(){
+  const elapsed = (performance.now() - roundStart) / 1000;
+  const speedBonus = Math.max(0, Math.round(10 - elapsed));
+  const points = Math.max(5, 15 - mistakes*3) + speedBonus;
+  sb.addScore(activeI, points);
+  EGL.beep('correct'); EGL.confetti(40);
+  EGL.toast(`✅ أحسنت! +${points} نقطة`);
+  setTimeout(()=>{ activeI = (activeI+1) % players.length; nextRound(); }, 1600);
+}
+
+function showResults(){
+  EGL.confetti(100); EGL.beep('win');
+  const ranking = sb.ranking();
+  const stage = document.getElementById('stage');
+  stage.innerHTML = `<div class="qcard">
+    <div style="font-size:3rem;">🏆</div><h2>انتهت الجولات!</h2>
+    <div class="scoreboard" style="justify-content:center;">
+      ${ranking.map((p,r)=>`<div class="player-chip ${r===0?'active':''}"><div style="font-size:1.4rem;">${r===0?'🥇':r===1?'🥈':r===2?'🥉':p.emoji}</div><div class="pname">${EGL.escapeHtml(p.name)}</div><div class="pscore">${p.score}</div></div>`).join('')}
+    </div>
+    <div style="display:flex; gap:10px; justify-content:center; margin-top:16px;">
+      <button class="btn btn-primary" onclick="location.reload()">🔁 لعب مرة أخرى</button>
+      <a class="btn btn-outline" href="../index.html">🏠 الألعاب الأخرى</a>
+    </div>
+  </div>`;
+}
+
+init();
+</script>
+</body>
+</html>

@@ -136,6 +136,16 @@ p{ line-height:1.8; color: var(--text-dim); }
 .gc-8{ background: linear-gradient(160deg, #a95ff0 0%, #331a63 100%); }
 .gc-9{ background: linear-gradient(160deg, #ff3f6c 0%, #4a0f2a 100%); }
 .gc-10{ background: linear-gradient(160deg, #29c4d9 0%, #0f3a4a 100%); }
+.gc-11{ background: linear-gradient(160deg, #5ec2e0 0%, #123048 100%); }
+.gc-12{ background: linear-gradient(160deg, #e08a3f 0%, #4a2a0f 100%); }
+.gc-13{ background: linear-gradient(160deg, #8ae05e 0%, #1e4a12 100%); }
+.gc-14{ background: linear-gradient(160deg, #d95ee0 0%, #45124a 100%); }
+.gc-15{ background: linear-gradient(160deg, #e0d95e 0%, #4a4512 100%); }
+.gc-16{ background: linear-gradient(160deg, #5e6ce0 0%, #12184a 100%); }
+.gc-17{ background: linear-gradient(160deg, #e05e8a 0%, #4a1230 100%); }
+
+.games-section{ margin-bottom: 44px; }
+.games-section .section-title h2{ font-size: 1.4rem; }
 
 /* ---------- Feature strip ---------- */
 .features{ display:grid; grid-template-columns: repeat(auto-fit,minmax(220px,1fr)); gap:18px; }

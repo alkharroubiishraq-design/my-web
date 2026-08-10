@@ -1,0 +1,152 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>بناء الكلمات — ساحة الصف</title>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>🔤</text></svg>">
+<link rel="stylesheet" href="../css/style.css">
+<style>
+  .blank-row, .tile-row{ display:flex; flex-wrap:wrap; gap:10px; justify-content:center; margin: 16px 0; }
+  .blank-slot{ width:52px; height:60px; border-radius:12px; background: var(--bg-soft); border-bottom:3px solid var(--primary); display:flex; align-items:center; justify-content:center; font-size:1.5rem; font-weight:900; }
+  .blank-slot.space{ background:transparent; border:none; width:20px; }
+  .letter-tile{ width:52px; height:60px; border-radius:12px; background: var(--surface-2); display:flex; align-items:center; justify-content:center; font-size:1.4rem; font-weight:900; cursor:pointer; border:3px solid transparent; transition:.15s; }
+  .letter-tile:hover{ transform: translateY(-3px); border-color: var(--primary); }
+  .letter-tile.used{ visibility:hidden; }
+  .letter-tile.wrong-flash{ background: rgba(255,92,92,.35); border-color: var(--danger); }
+</style>
+</head>
+<body>
+<nav class="topnav"><div class="container">
+  <a class="brand" href="../index.html"><span class="logo">🎲</span> ساحة الصف</a>
+  <div class="navlinks"><a href="../index.html">الرئيسية</a><a href="../index.html#games">الألعاب</a><a href="../questions.html">بنك الأسئلة</a></div>
+</div></nav>
+
+<div class="game-shell">
+  <div class="game-header container">
+    <h1>🔤 بناء الكلمات</h1>
+    <p>رتّبوا الحروف المبعثرة لتكوين الكلمة الصحيحة بأسرع وقت ممكن!</p>
+  </div>
+  <div class="game-stage container" id="stage"></div>
+</div>
+
+<script src="../js/common.js"></script>
+<script>
+const ROUNDS = 8;
+let sb, players, activeI, pool, poolIdx, round, secret, clue, expectedIdx, mistakes, roundStart;
+
+function init(){
+  const stage = document.getElementById('stage');
+  stage.innerHTML = `<div class="empty-state"><div class="emoji">🔤</div><h3>هيّئ اللعبة</h3><p>تحتاج بنك أسئلة فيه إجابات نصية قصيرة (كلمات).</p>
+    <button class="btn btn-primary" id="btn-setup">ابدأ الإعداد 🎮</button></div>`;
+  document.getElementById('btn-setup').addEventListener('click', openSetup);
+  openSetup();
+}
+function openSetup(){
+  EGL.openSetupModal({ title:'إعداد بناء الكلمات', allowIndividual:true, allowTeams:true, needQuestions:true }, startGame);
+}
+
+function startGame(cfg){
+  const bank = EGL.getBank(cfg.bankId);
+  const eligible = bank.questions.filter(q => q.answerText && q.answerText.trim().length >= 2 && q.answerText.trim().length <= 14);
+  if(eligible.length < 3){ EGL.toast('تحتاج هذه اللعبة أسئلة ذات إجابات نصية قصيرة (٣ على الأقل) — أضف المزيد للبنك'); return; }
+  pool = EGL.shuffle(eligible);
+  poolIdx = 0;
+  players = cfg.players;
+  activeI = 0;
+  round = 0;
+  const stage = document.getElementById('stage');
+  stage.innerHTML = `<div id="sb-wrap" class="scoreboard"></div><div id="round-badge" class="badge" style="display:block; text-align:center; margin-bottom:10px;"></div><div id="game-area"></div>`;
+  sb = new EGL.Scoreboard(document.getElementById('sb-wrap'), players);
+  nextRound();
+}
+
+function isGuessable(ch){ return ch !== ' '; }
+
+function nextRound(){
+  round++;
+  if(round > ROUNDS || poolIdx >= pool.length){ showResults(); return; }
+  const q = pool[poolIdx++];
+  secret = q.answerText.trim();
+  clue = q.text;
+  expectedIdx = 0;
+  mistakes = 0;
+  document.getElementById('round-badge').textContent = `🔤 الجولة ${round} / ${Math.min(ROUNDS, pool.length)}`;
+  roundStart = performance.now();
+  renderRound();
+}
+
+function renderRound(){
+  const area = document.getElementById('game-area');
+  const scrambled = EGL.scrambleWord(secret.replace(/ /g, ''));
+  area.innerHTML = `
+    <div class="qcard">
+      <p style="font-weight:700;">💡 التلميح: ${EGL.escapeHtml(clue)}</p>
+      <p>دور: <strong style="color:var(--accent-2)">${players[activeI].emoji} ${EGL.escapeHtml(players[activeI].name)}</strong></p>
+      <div class="blank-row" id="blank-row"></div>
+      <div class="tile-row" id="tile-row"></div>
+    </div>`;
+  renderBlanks();
+  const tileRow = document.getElementById('tile-row');
+  tileRow.innerHTML = scrambled.map((l,i) => `<div class="letter-tile" data-l="${l}" data-idx="${i}">${l}</div>`).join('');
+  tileRow.querySelectorAll('.letter-tile').forEach(tile => tile.addEventListener('click', () => tapLetter(tile)));
+}
+
+function renderBlanks(){
+  const wrap = document.getElementById('blank-row');
+  wrap.innerHTML = secret.split('').map((ch,i) => {
+    if(ch === ' ') return `<div class="blank-slot space"></div>`;
+    const filled = i < expectedIdx;
+    return `<div class="blank-slot">${filled ? ch : ''}</div>`;
+  }).join('');
+}
+
+function tapLetter(tile){
+  if(tile.classList.contains('used')) return;
+  while(secret[expectedIdx] === ' ') expectedIdx++; // auto-skip spaces
+  const target = secret[expectedIdx];
+  if(tile.dataset.l === target){
+    tile.classList.add('used');
+    expectedIdx++;
+    EGL.beep('tick');
+    renderBlanks();
+    while(secret[expectedIdx] === ' ') expectedIdx++;
+    if(expectedIdx >= secret.length) roundComplete();
+  } else {
+    mistakes++;
+    tile.classList.add('wrong-flash');
+    EGL.beep('wrong');
+    setTimeout(()=> tile.classList.remove('wrong-flash'), 400);
+  }
+}
+
+function roundComplete(){
+  const elapsed = (performance.now() - roundStart) / 1000;
+  const speedBonus = Math.max(0, Math.round(10 - elapsed));
+  const points = Math.max(5, 15 - mistakes*3) + speedBonus;
+  sb.addScore(activeI, points);
+  EGL.beep('correct'); EGL.confetti(40);
+  EGL.toast(`🎉 الكلمة: ${secret} — +${points} نقطة`);
+  setTimeout(()=>{ activeI = (activeI+1) % players.length; nextRound(); }, 1800);
+}
+
+function showResults(){
+  EGL.confetti(100); EGL.beep('win');
+  const ranking = sb.ranking();
+  const stage = document.getElementById('stage');
+  stage.innerHTML = `<div class="qcard">
+    <div style="font-size:3rem;">🏆</div><h2>انتهت الجولات!</h2>
+    <div class="scoreboard" style="justify-content:center;">
+      ${ranking.map((p,r)=>`<div class="player-chip ${r===0?'active':''}"><div style="font-size:1.4rem;">${r===0?'🥇':r===1?'🥈':r===2?'🥉':p.emoji}</div><div class="pname">${EGL.escapeHtml(p.name)}</div><div class="pscore">${p.score}</div></div>`).join('')}
+    </div>
+    <div style="display:flex; gap:10px; justify-content:center; margin-top:16px;">
+      <button class="btn btn-primary" onclick="location.reload()">🔁 لعب مرة أخرى</button>
+      <a class="btn btn-outline" href="../index.html">🏠 الألعاب الأخرى</a>
+    </div>
+  </div>`;
+}
+
+init();
+</script>
+</body>
+</html>

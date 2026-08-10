@@ -1,0 +1,143 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>نحلة الإملاء — ساحة الصف</title>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>🐝</text></svg>">
+<link rel="stylesheet" href="../css/style.css">
+<style>
+  .flash-word{ font-size: 3rem; font-weight:900; text-align:center; margin: 24px 0; color: var(--accent-2); }
+  .spell-options{ display:grid; grid-template-columns: 1fr 1fr; gap:12px; }
+  @media (max-width:520px){ .spell-options{ grid-template-columns:1fr; } }
+</style>
+</head>
+<body>
+<nav class="topnav"><div class="container">
+  <a class="brand" href="../index.html"><span class="logo">🎲</span> ساحة الصف</a>
+  <div class="navlinks"><a href="../index.html">الرئيسية</a><a href="../index.html#games">الألعاب</a><a href="../questions.html">بنك الأسئلة</a></div>
+</div></nav>
+
+<div class="game-shell">
+  <div class="game-header container">
+    <h1>🐝 نحلة الإملاء</h1>
+    <p>تظهر الكلمة للحظات ثم تختفي — اختاروا التهجئة الصحيحة من بين الخيارات!</p>
+  </div>
+  <div class="game-stage container" id="stage"></div>
+</div>
+
+<script src="../js/common.js"></script>
+<script>
+const ROUNDS = 8, FLASH_TIME = 2.5;
+let sb, players, activeI, pool, poolIdx, round, secret, clue, roundStart;
+
+function init(){
+  const stage = document.getElementById('stage');
+  stage.innerHTML = `<div class="empty-state"><div class="emoji">🐝</div><h3>هيّئ اللعبة</h3><p>تحتاج بنك أسئلة فيه إجابات نصية قصيرة (كلمات مفردة يُفضَّل).</p>
+    <button class="btn btn-primary" id="btn-setup">ابدأ الإعداد 🎮</button></div>`;
+  document.getElementById('btn-setup').addEventListener('click', openSetup);
+  openSetup();
+}
+function openSetup(){
+  EGL.openSetupModal({ title:'إعداد نحلة الإملاء', allowIndividual:true, allowTeams:true, needQuestions:true }, startGame);
+}
+
+function startGame(cfg){
+  const bank = EGL.getBank(cfg.bankId);
+  const eligible = bank.questions.filter(q => q.answerText && q.answerText.trim().length >= 3 && q.answerText.trim().length <= 16 && !q.answerText.includes(' '));
+  if(eligible.length < 3){ EGL.toast('تحتاج هذه اللعبة أسئلة ذات إجابات مفردة (كلمة واحدة بدون مسافات) — أضف المزيد للبنك'); return; }
+  pool = EGL.shuffle(eligible);
+  poolIdx = 0;
+  players = cfg.players;
+  activeI = 0;
+  round = 0;
+  const stage = document.getElementById('stage');
+  stage.innerHTML = `<div id="sb-wrap" class="scoreboard"></div><div id="round-badge" class="badge" style="display:block; text-align:center; margin-bottom:10px;"></div><div id="game-area"></div>`;
+  sb = new EGL.Scoreboard(document.getElementById('sb-wrap'), players);
+  nextRound();
+}
+
+function nextRound(){
+  round++;
+  if(round > ROUNDS || poolIdx >= pool.length){ showResults(); return; }
+  const q = pool[poolIdx++];
+  secret = q.answerText.trim();
+  clue = q.text;
+  document.getElementById('round-badge').textContent = `🐝 الجولة ${round} / ${Math.min(ROUNDS, pool.length)}`;
+  renderFlash();
+}
+
+function renderFlash(){
+  const area = document.getElementById('game-area');
+  area.innerHTML = `
+    <div class="qcard">
+      <p style="font-weight:700;">💡 التلميح: ${EGL.escapeHtml(clue)}</p>
+      <p>دور: <strong style="color:var(--accent-2)">${players[activeI].emoji} ${EGL.escapeHtml(players[activeI].name)}</strong></p>
+      <div class="flash-word" id="flash-word">${EGL.escapeHtml(secret)}</div>
+      <div class="timer-bar"><div id="flash-timer" style="width:100%"></div></div>
+      <p class="hint">احفظوا التهجئة الصحيحة... ستختفي الكلمة قريبًا!</p>
+    </div>`;
+  let t = FLASH_TIME * 10;
+  const iv = setInterval(()=>{
+    t--;
+    const fill = document.getElementById('flash-timer');
+    if(fill) fill.style.width = (t/(FLASH_TIME*10)*100)+'%';
+    if(t<=0){ clearInterval(iv); renderChoices(); }
+  }, 100);
+}
+
+function renderChoices(){
+  const decoys = EGL.spellingDecoys(secret, 3);
+  const options = EGL.shuffle([secret, ...decoys]);
+  roundStart = performance.now();
+  const area = document.getElementById('game-area');
+  area.innerHTML = `
+    <div class="qcard">
+      <p style="font-weight:700;">💡 التلميح: ${EGL.escapeHtml(clue)}</p>
+      <p>ما هي التهجئة الصحيحة؟</p>
+      <div class="spell-options" id="spell-options"></div>
+    </div>`;
+  const wrap = document.getElementById('spell-options');
+  wrap.innerHTML = options.map(o => `<button class="option-btn" data-w="${EGL.escapeHtml(o)}">${EGL.escapeHtml(o)}</button>`).join('');
+  wrap.querySelectorAll('.option-btn').forEach(btn => btn.addEventListener('click', () => choose(btn)));
+}
+
+function choose(btn){
+  const wrap = document.getElementById('spell-options');
+  wrap.querySelectorAll('.option-btn').forEach(b=>b.disabled=true);
+  const chosen = btn.textContent;
+  const correctBtn = Array.from(wrap.querySelectorAll('.option-btn')).find(b => b.textContent === secret);
+  if(chosen === secret){
+    btn.classList.add('correct');
+    const elapsed = (performance.now() - roundStart)/1000;
+    const bonus = Math.max(0, Math.round(8 - elapsed));
+    sb.addScore(activeI, 12 + bonus);
+    EGL.beep('correct'); EGL.confetti(35);
+  } else {
+    btn.classList.add('wrong');
+    if(correctBtn) correctBtn.classList.add('correct');
+    EGL.beep('wrong');
+  }
+  setTimeout(()=>{ activeI = (activeI+1) % players.length; nextRound(); }, 1700);
+}
+
+function showResults(){
+  EGL.confetti(100); EGL.beep('win');
+  const ranking = sb.ranking();
+  const stage = document.getElementById('stage');
+  stage.innerHTML = `<div class="qcard">
+    <div style="font-size:3rem;">🏆</div><h2>انتهت الجولات!</h2>
+    <div class="scoreboard" style="justify-content:center;">
+      ${ranking.map((p,r)=>`<div class="player-chip ${r===0?'active':''}"><div style="font-size:1.4rem;">${r===0?'🥇':r===1?'🥈':r===2?'🥉':p.emoji}</div><div class="pname">${EGL.escapeHtml(p.name)}</div><div class="pscore">${p.score}</div></div>`).join('')}
+    </div>
+    <div style="display:flex; gap:10px; justify-content:center; margin-top:16px;">
+      <button class="btn btn-primary" onclick="location.reload()">🔁 لعب مرة أخرى</button>
+      <a class="btn btn-outline" href="../index.html">🏠 الألعاب الأخرى</a>
+    </div>
+  </div>`;
+}
+
+init();
+</script>
+</body>
+</html>

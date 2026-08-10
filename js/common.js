@@ -238,9 +238,9 @@ const EGL = (() => {
   }
 
   /* ---------------- Setup Modal ---------------- */
-  // options: { title, allowIndividual, allowTeams, defaultMode, needQuestions:true, minPlayers, maxPlayers, extraFieldsHtml }
+  // options: { title, allowIndividual, allowTeams, defaultMode, needQuestions:true, minPlayers, maxPlayers, extraFieldsHtml, skipBank:false }
   function openSetupModal(options, onStart) {
-    const banks = getBanks().filter(b => !options.needQuestions || b.questions.some(q => !options.qType || q.type === options.qType || options.qType.includes(q.type)));
+    const banks = options.skipBank ? [] : getBanks().filter(b => !options.needQuestions || b.questions.some(q => !options.qType || q.type === options.qType || options.qType.includes(q.type)));
     const overlay = document.createElement('div');
     overlay.className = 'modal-overlay';
     const modeDefault = options.allowIndividual ? 'individual' : 'teams';
@@ -248,10 +248,11 @@ const EGL = (() => {
       <div class="modal">
         <h2>${options.title || 'إعداد اللعبة'} 🎮</h2>
         <p>اضبط الإعدادات ثم ابدأ اللعب مباشرة.</p>
+        ${options.skipBank ? '' : `
         <label>بنك الأسئلة</label>
         <select id="egl-setup-bank">
           ${banks.length ? banks.map(b => `<option value="${b.id}">${escapeHtml(b.icon || '📚')} ${escapeHtml(b.name)} (${b.questions.length} سؤال)</option>`).join('') : `<option value="">لا يوجد بنك أسئلة — أنشئ واحدًا من صفحة "بنك الأسئلة"</option>`}
-        </select>
+        </select>`}
         ${options.allowIndividual && options.allowTeams ? `
         <label>طريقة اللعب</label>
         <div class="chip-group" id="egl-setup-mode">
@@ -272,8 +273,8 @@ const EGL = (() => {
 
     function renderPlayers() {
       const isTeam = mode === 'teams';
-      const min = isTeam ? 2 : (options.minPlayers || 1);
-      const max = isTeam ? 6 : (options.maxPlayers || 6);
+      const min = isTeam ? (options.minPlayers || 2) : (options.minPlayers || 1);
+      const max = isTeam ? (options.maxPlayers || 6) : (options.maxPlayers || 6);
       const defaultCount = isTeam ? 2 : (options.minPlayers === options.maxPlayers ? options.minPlayers : 1);
       playersWrap.innerHTML = `
         <label>${isTeam ? 'عدد الفرق' : (options.playersLabel || 'عدد اللاعبين')}</label>
@@ -306,8 +307,11 @@ const EGL = (() => {
 
     overlay.querySelector('#egl-setup-cancel').addEventListener('click', () => overlay.remove());
     overlay.querySelector('#egl-setup-start').addEventListener('click', () => {
-      const bankId = overlay.querySelector('#egl-setup-bank').value;
-      if (!bankId) { toast('أنشئ بنك أسئلة أولًا من صفحة "بنك الأسئلة" 📚'); return; }
+      let bankId = null;
+      if (!options.skipBank) {
+        bankId = overlay.querySelector('#egl-setup-bank').value;
+        if (!bankId) { toast('أنشئ بنك أسئلة أولًا من صفحة "بنك الأسئلة" 📚'); return; }
+      }
       const names = Array.from(overlay.querySelectorAll('.egl-player-name')).map(inp => ({ name: inp.value.trim() || inp.placeholder, emoji: inp.dataset.emoji }));
       const extra = {};
       overlay.querySelectorAll('[data-extra]').forEach(el => { extra[el.dataset.extra] = el.value; });
@@ -316,11 +320,102 @@ const EGL = (() => {
     });
   }
 
+  /* ---------------- Math problem generator (for subject-specific math games) ---------------- */
+  function genMathProblem(difficulty) {
+    const ranges = { easy: [1, 10], medium: [2, 30], hard: [5, 100] };
+    const opsFor = { easy: ['+', '-'], medium: ['+', '-', '×'], hard: ['+', '-', '×', '÷'] };
+    const [lo, hi] = ranges[difficulty] || ranges.medium;
+    const ops = opsFor[difficulty] || opsFor.medium;
+    const op = pick(ops);
+    let a, b, answer;
+    if (op === '÷') {
+      b = 2 + Math.floor(Math.random() * 11);
+      answer = 1 + Math.floor(Math.random() * (difficulty === 'hard' ? 12 : 9));
+      a = b * answer;
+    } else if (op === '×') {
+      const mhi = difficulty === 'hard' ? 12 : (difficulty === 'medium' ? 10 : 5);
+      a = 1 + Math.floor(Math.random() * mhi);
+      b = 1 + Math.floor(Math.random() * mhi);
+      answer = a * b;
+    } else {
+      a = lo + Math.floor(Math.random() * (hi - lo + 1));
+      b = lo + Math.floor(Math.random() * (hi - lo + 1));
+      if (op === '-' && b > a) { const t = a; a = b; b = t; }
+      answer = op === '+' ? a + b : a - b;
+    }
+    return { a, b, op, answer, text: `${a} ${op} ${b}` };
+  }
+
+  function genMathStatement(difficulty) {
+    // returns {text, isTrue} — a fully-formed "a op b = N" statement, true or false ~50/50
+    const p = genMathProblem(difficulty);
+    let shown = p.answer;
+    let isTrue = true;
+    if (Math.random() < 0.5) {
+      isTrue = false;
+      const delta = 1 + Math.floor(Math.random() * (difficulty === 'hard' ? 8 : 4));
+      shown = p.answer + (Math.random() < 0.5 ? delta : -delta);
+    }
+    return { text: `${p.text} = ${shown}`, isTrue };
+  }
+
+  /* ---------------- Word helpers (for language games) ---------------- */
+  function scrambleWord(word) {
+    const letters = word.split('');
+    if (letters.length <= 1) return letters;
+    let attempt;
+    let tries = 0;
+    do {
+      attempt = shuffle(letters);
+      tries++;
+    } while (attempt.join('') === letters.join('') && tries < 12);
+    return attempt;
+  }
+
+  const AR_NEIGHBOR = { 'ا':'أ','ب':'ت','ت':'ب','ث':'ت','ج':'ح','ح':'خ','خ':'ح','د':'ذ','ذ':'د','ر':'ز','ز':'ر','س':'ش','ش':'س','ص':'ض','ض':'ص','ط':'ظ','ظ':'ط','ع':'غ','غ':'ع','ف':'ق','ق':'ف','ك':'ل','ل':'ك','م':'ن','ن':'م','ه':'ة','و':'ي','ي':'و' };
+  function spellingDecoys(word, count = 3) {
+    const w = word.trim();
+    const decoys = new Set();
+    const attempts = [
+      () => { // swap two adjacent letters
+        if (w.length < 2) return null;
+        const i = Math.floor(Math.random() * (w.length - 1));
+        const arr = w.split('');
+        [arr[i], arr[i + 1]] = [arr[i + 1], arr[i]];
+        return arr.join('');
+      },
+      () => { // remove a letter
+        if (w.length < 3) return null;
+        const i = Math.floor(Math.random() * w.length);
+        return w.slice(0, i) + w.slice(i + 1);
+      },
+      () => { // duplicate a letter
+        const i = Math.floor(Math.random() * w.length);
+        return w.slice(0, i + 1) + w[i] + w.slice(i + 1);
+      },
+      () => { // substitute a letter with a visually/keyboard-near letter
+        const i = Math.floor(Math.random() * w.length);
+        const ch = w[i];
+        const rep = AR_NEIGHBOR[ch] || (/[a-zA-Z]/.test(ch) ? String.fromCharCode(ch.charCodeAt(0) + (Math.random() < 0.5 ? 1 : -1)) : ch);
+        return w.slice(0, i) + rep + w.slice(i + 1);
+      },
+    ];
+    let guard = 0;
+    while (decoys.size < count && guard < 40) {
+      const fn = pick(attempts);
+      const d = fn();
+      guard++;
+      if (d && d !== w && !decoys.has(d)) decoys.add(d);
+    }
+    return Array.from(decoys);
+  }
+
   return {
     uuid, shuffle, pick, qs, pointsFor, diffLabel, typeLabel,
     getBanks, saveBanks, getBank, addBank, updateBank, deleteBank, addQuestions, deleteQuestion,
     getApiKey, setApiKey, getModel, setModel,
     seedIfEmpty, mkMcq, mkTf, mkOpen,
-    toast, beep, confetti, Scoreboard, escapeHtml, openSetupModal
+    toast, beep, confetti, Scoreboard, escapeHtml, openSetupModal,
+    genMathProblem, genMathStatement, scrambleWord, spellingDecoys
   };
 })();
