@@ -134,6 +134,8 @@ p{ line-height:1.8; color: var(--text-dim); }
 .gc-6{ background: linear-gradient(160deg, #f0507a 0%, #611c3d 100%); }
 .gc-7{ background: linear-gradient(160deg, #35c46a 0%, #124a2c 100%); }
 .gc-8{ background: linear-gradient(160deg, #a95ff0 0%, #331a63 100%); }
+.gc-9{ background: linear-gradient(160deg, #ff3f6c 0%, #4a0f2a 100%); }
+.gc-10{ background: linear-gradient(160deg, #29c4d9 0%, #0f3a4a 100%); }
 
 /* ---------- Feature strip ---------- */
 .features{ display:grid; grid-template-columns: repeat(auto-fit,minmax(220px,1fr)); gap:18px; }

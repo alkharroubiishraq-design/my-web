@@ -1,0 +1,253 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>سباق الأجراس — ساحة الصف</title>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>🔔</text></svg>">
+<link rel="stylesheet" href="../css/style.css">
+<style>
+  .buzzers{ display:grid; grid-template-columns: repeat(auto-fit, minmax(140px,1fr)); gap:14px; width:100%; max-width:820px; margin: 18px auto; }
+  .buzz-btn{ position:relative; border:none; cursor:pointer; border-radius:20px; padding:22px 10px; text-align:center; color:#fff; font-family:inherit; transition: transform .12s ease, box-shadow .12s ease; box-shadow: 0 8px 0 rgba(0,0,0,.25), var(--shadow); }
+  .buzz-btn:active{ transform: translateY(6px); box-shadow: 0 2px 0 rgba(0,0,0,.25); }
+  .buzz-btn .bname{ font-weight:800; font-size:1rem; margin-top:6px; }
+  .buzz-btn .bemoji{ font-size:1.8rem; }
+  .buzz-btn .bkey{ display:inline-block; margin-top:8px; background: rgba(255,255,255,.25); border-radius:8px; padding:3px 10px; font-weight:900; font-size:.85rem; letter-spacing:1px; }
+  .buzz-btn.disabled-wait{ opacity:.4; cursor:default; }
+  .buzz-btn.locked{ outline: 4px solid var(--accent-2); animation: none; }
+  .buzz-btn.ready-pulse{ animation: buzzPulse 1s ease-in-out infinite; }
+  @keyframes buzzPulse{ 0%,100%{ transform:scale(1);} 50%{ transform:scale(1.04);} }
+  .rank-list{ width:100%; max-width:520px; margin: 6px auto; display:flex; flex-direction:column; gap:8px; }
+  .rank-row{ display:flex; align-items:center; justify-content:space-between; background: var(--surface-2); padding:10px 16px; border-radius:12px; font-weight:700; }
+  .rank-row .medal{ font-size:1.2rem; }
+  .countdown-overlay{ position:fixed; inset:0; background: rgba(5,6,20,.88); display:flex; align-items:center; justify-content:center; z-index:250; }
+  .countdown-num{ font-size: 9rem; font-weight:900; color: var(--accent-2); text-shadow: 0 0 40px rgba(255,210,63,.6); animation: countPop .5s ease; }
+  @keyframes countPop{ from{ transform: scale(1.6); opacity:0;} to{ transform: scale(1); opacity:1; } }
+</style>
+</head>
+<body>
+<nav class="topnav"><div class="container">
+  <a class="brand" href="../index.html"><span class="logo">🎲</span> ساحة الصف</a>
+  <div class="navlinks"><a href="../index.html">الرئيسية</a><a href="../index.html#games">الألعاب</a><a href="../questions.html">بنك الأسئلة</a></div>
+</div></nav>
+
+<div class="game-shell">
+  <div class="game-header container">
+    <h1>🔔 سباق الأجراس</h1>
+    <p>يقرأ الجميع السؤال معًا، وعند "انطلاق!" يضغط كل فريق جرسه بأسرع ما يمكن — الأسرع يجيب أولًا!</p>
+  </div>
+  <div class="game-stage container" id="stage"></div>
+</div>
+
+<script src="../js/common.js"></script>
+<script>
+const KEY_POOL = ['A','L','Q','P','Z','M'];
+const COLORS = ['#7c5cff','#ff5c9e','#21e6c1','#f0a93f','#3f8ef0','#35c46a'];
+const ANSWER_TIME = 8;
+let sb, players, keys, questions, qIdx, windowOpen=false, windowStart=0, buzzTimes, rankingQueue, curResponder, answerTimerInt;
+
+function init(){
+  const stage = document.getElementById('stage');
+  stage.innerHTML = `<div class="empty-state"><div class="emoji">🔔</div><h3>هيّئ اللعبة</h3><p>مثالية لفريقين أو أكثر يتنافسون على نفس الشاشة — كل فريق له مفتاح جرس خاص به.</p>
+    <button class="btn btn-primary" id="btn-setup">ابدأ الإعداد 🎮</button></div>`;
+  document.getElementById('btn-setup').addEventListener('click', openSetup);
+  openSetup();
+}
+function openSetup(){
+  EGL.openSetupModal({ title:'إعداد سباق الأجراس', allowIndividual:true, allowTeams:true, needQuestions:true, qType:['mcq','tf'], minPlayers:2, maxPlayers:6 }, startGame);
+}
+
+function startGame(cfg){
+  const bank = EGL.getBank(cfg.bankId);
+  questions = EGL.shuffle(bank.questions.filter(q=>q.type==='mcq'||q.type==='tf')).slice(0, 12);
+  if(!questions.length){ EGL.toast('لا توجد أسئلة اختيار/صح-خطأ في هذا البنك'); return; }
+  players = cfg.players;
+  keys = players.map((_,i)=>KEY_POOL[i % KEY_POOL.length]);
+  qIdx = 0;
+
+  const stage = document.getElementById('stage');
+  stage.innerHTML = `<div id="sb-wrap" class="scoreboard"></div><div id="q-area"></div>`;
+  sb = new EGL.Scoreboard(document.getElementById('sb-wrap'), players);
+  document.addEventListener('keydown', onKeyDown);
+  renderQuestion();
+}
+
+function renderQuestion(){
+  windowOpen = false;
+  const q = questions[qIdx];
+  const area = document.getElementById('q-area');
+  area.innerHTML = `
+    <div class="qcard">
+      <div class="qmeta"><span class="badge">سؤال ${qIdx+1} / ${questions.length}</span><span class="badge">${EGL.diffLabel(q.difficulty)} · ${q.points} نقطة</span></div>
+      <div class="qtext">${EGL.escapeHtml(q.text)}</div>
+      <div class="options" id="opts">${q.options.map((o,i)=>`<button class="option-btn" data-i="${i}" disabled>${EGL.escapeHtml(o)}</button>`).join('')}</div>
+      <p class="hint">اقرؤوا السؤال معًا، ثم اضغطوا "ابدأ السباق" عندما تكونون جاهزين!</p>
+      <button class="btn btn-gold" id="btn-race">🔔 ابدأ السباق!</button>
+    </div>
+    <div class="buzzers" id="buzzers"></div>
+    <div class="rank-list" id="rank-list"></div>
+  `;
+  document.getElementById('btn-race').addEventListener('click', startCountdown);
+  renderBuzzers(false);
+}
+
+function renderBuzzers(active){
+  const wrap = document.getElementById('buzzers');
+  wrap.innerHTML = players.map((p,i)=>`
+    <button class="buzz-btn ${active?'ready-pulse':'disabled-wait'}" data-i="${i}" style="background:${COLORS[i%COLORS.length]}">
+      <div class="bemoji">${p.emoji}</div>
+      <div class="bname">${EGL.escapeHtml(p.name)}</div>
+      <div class="bkey">⌨ ${keys[i]}</div>
+    </button>`).join('');
+  wrap.querySelectorAll('.buzz-btn').forEach(btn=>btn.addEventListener('click', ()=>tryBuzz(parseInt(btn.dataset.i))));
+}
+
+function startCountdown(){
+  document.getElementById('btn-race').disabled = true;
+  let n = 3;
+  const overlay = document.createElement('div');
+  overlay.className = 'countdown-overlay';
+  overlay.innerHTML = `<div class="countdown-num" id="cd-num">${n}</div>`;
+  document.body.appendChild(overlay);
+  EGL.beep('tick');
+  const iv = setInterval(()=>{
+    n--;
+    if(n > 0){
+      overlay.querySelector('#cd-num').textContent = n;
+      overlay.querySelector('#cd-num').style.animation = 'none';
+      void overlay.offsetWidth;
+      overlay.querySelector('#cd-num').style.animation = 'countPop .5s ease';
+      EGL.beep('tick');
+    } else {
+      overlay.querySelector('#cd-num').textContent = 'انطلق! 🚀';
+      overlay.querySelector('#cd-num').style.fontSize = '5rem';
+      EGL.beep('win');
+      clearInterval(iv);
+      setTimeout(()=>{ overlay.remove(); openBuzzWindow(); }, 550);
+    }
+  }, 700);
+}
+
+function openBuzzWindow(){
+  windowOpen = true;
+  windowStart = performance.now();
+  buzzTimes = players.map(()=>null);
+  renderBuzzers(true);
+  document.getElementById('rank-list').innerHTML = '';
+  window._buzzTimeout = setTimeout(closeBuzzWindow, 8000);
+}
+
+function onKeyDown(e){
+  if(!windowOpen) return;
+  const k = e.key.toUpperCase();
+  const i = keys.indexOf(k);
+  if(i === -1) return;
+  tryBuzz(i);
+}
+
+function tryBuzz(i){
+  if(!windowOpen || buzzTimes[i] !== null) return;
+  buzzTimes[i] = performance.now() - windowStart;
+  EGL.beep('tick');
+  const btn = document.querySelector(`.buzz-btn[data-i="${i}"]`);
+  if(btn){ btn.classList.add('locked'); btn.classList.remove('ready-pulse'); }
+  renderRankLive();
+  if(buzzTimes.every(t => t !== null)) closeBuzzWindow();
+}
+
+function renderRankLive(){
+  const list = document.getElementById('rank-list');
+  const ranked = players.map((p,i)=>({p,i,t:buzzTimes[i]})).filter(x=>x.t!==null).sort((a,b)=>a.t-b.t);
+  const medals = ['🥇','🥈','🥉','4️⃣','5️⃣','6️⃣'];
+  list.innerHTML = ranked.map((r,idx)=>`
+    <div class="rank-row"><span><span class="medal">${medals[idx]||''}</span> ${r.p.emoji} ${EGL.escapeHtml(r.p.name)}</span><span>${(r.t/1000).toFixed(2)} ث</span></div>
+  `).join('');
+}
+
+function closeBuzzWindow(){
+  if(!windowOpen) return;
+  windowOpen = false;
+  clearTimeout(window._buzzTimeout);
+  document.querySelectorAll('.buzz-btn').forEach(b=>b.classList.remove('ready-pulse'));
+  rankingQueue = players.map((p,i)=>({p,i,t:buzzTimes[i]})).filter(x=>x.t!==null).sort((a,b)=>a.t-b.t).map(x=>x.i);
+  if(!rankingQueue.length){
+    revealNoAnswer();
+    return;
+  }
+  startResponder();
+}
+
+function startResponder(){
+  curResponder = rankingQueue.shift();
+  const btn = document.querySelector(`.buzz-btn[data-i="${curResponder}"]`);
+  document.querySelectorAll('.buzz-btn').forEach(b=>b.style.outline='');
+  if(btn) btn.style.outline = '4px solid var(--accent-2)';
+  const q = questions[qIdx];
+  const opts = document.querySelectorAll('.option-btn');
+  opts.forEach((b,i)=>{ b.disabled=false; b.onclick = () => submitAnswer(i, q); });
+  const area = document.querySelector('.qcard');
+  let info = area.querySelector('#responder-info');
+  if(!info){ info = document.createElement('p'); info.id = 'responder-info'; area.insertBefore(info, area.querySelector('.hint')); }
+  info.innerHTML = `🎙 دور الإجابة الآن: <strong style="color:var(--accent-2)">${players[curResponder].emoji} ${EGL.escapeHtml(players[curResponder].name)}</strong> (${(buzzTimes[curResponder]/1000).toFixed(2)} ث)`;
+  const raceBtn = document.getElementById('btn-race');
+  if(raceBtn) raceBtn.remove();
+}
+
+function submitAnswer(i, q){
+  const opts = document.querySelectorAll('.option-btn');
+  opts.forEach(b=>{ b.disabled = true; b.onclick = null; });
+  if(i === q.correctIndex){
+    opts[i].classList.add('correct');
+    const bonus = Math.round(Math.max(0, (8000 - buzzTimes[curResponder]) / 8000) * q.points * 0.6);
+    sb.addScore(curResponder, q.points + bonus);
+    EGL.beep('correct'); EGL.confetti(50);
+    setTimeout(nextQuestion, 1800);
+  } else {
+    opts[i].classList.add('wrong');
+    EGL.beep('wrong');
+    const btn = document.querySelector(`.buzz-btn[data-i="${curResponder}"]`);
+    if(btn){ btn.style.opacity = '.3'; btn.style.outline=''; }
+    setTimeout(()=>{
+      opts.forEach(b=>b.classList.remove('wrong'));
+      if(rankingQueue.length) startResponder();
+      else { opts[q.correctIndex].classList.add('correct'); setTimeout(nextQuestion, 1600); }
+    }, 900);
+  }
+}
+
+function revealNoAnswer(){
+  const q = questions[qIdx];
+  const opts = document.querySelectorAll('.option-btn');
+  opts.forEach(b=>b.disabled=true);
+  opts[q.correctIndex].classList.add('correct');
+  EGL.toast('⏱ لم يضغط أحد الجرس في الوقت المحدد!');
+  setTimeout(nextQuestion, 1600);
+}
+
+function nextQuestion(){
+  qIdx++;
+  if(qIdx >= questions.length) showResults();
+  else renderQuestion();
+}
+
+function showResults(){
+  document.removeEventListener('keydown', onKeyDown);
+  EGL.confetti(100); EGL.beep('win');
+  const ranking = sb.ranking();
+  const stage = document.getElementById('stage');
+  stage.innerHTML = `<div class="qcard">
+    <div style="font-size:3rem;">🏆</div><h2>انتهى السباق!</h2>
+    <div class="scoreboard" style="justify-content:center;">
+      ${ranking.map((p,r)=>`<div class="player-chip ${r===0?'active':''}"><div style="font-size:1.4rem;">${r===0?'🥇':r===1?'🥈':r===2?'🥉':p.emoji}</div><div class="pname">${EGL.escapeHtml(p.name)}</div><div class="pscore">${p.score}</div></div>`).join('')}
+    </div>
+    <div style="display:flex; gap:10px; justify-content:center; margin-top:16px;">
+      <button class="btn btn-primary" onclick="location.reload()">🔁 لعب مرة أخرى</button>
+      <a class="btn btn-outline" href="../index.html">🏠 الألعاب الأخرى</a>
+    </div>
+  </div>`;
+}
+
+init();
+</script>
+</body>
+</html>
