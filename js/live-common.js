@@ -15,7 +15,8 @@ const FIREBASE_CONFIG = {
 };
 
 const EGLLive = (() => {
-  const QUESTION_TIME = 20; // ثانية لكل سؤال — قيمة مشتركة بين شاشة المعلم وشاشة الطالب
+  const QUESTION_TIME = 20; // ثانية لكل سؤال (وقت الإجابة الفعلي) — قيمة مشتركة بين شاشة المعلم وشاشة الطالب
+  const QUESTION_BUFFER = 4; // ثوانٍ "استعداد" قبل بدء عد الإجابة، تمتص فرق زمن وصول السؤال بين الأجهزة
   let dbInstance = null;
   let initError = null;
 
@@ -77,5 +78,5 @@ const EGLLive = (() => {
     );
   }
 
-  return { QUESTION_TIME, db, checkConnection, genCode, createRoom, updateRoom, getRoom, onRoom };
+  return { QUESTION_TIME, QUESTION_BUFFER, db, checkConnection, genCode, createRoom, updateRoom, getRoom, onRoom };
 })();

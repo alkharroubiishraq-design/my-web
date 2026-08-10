@@ -126,15 +126,46 @@ function renderLobby(room){
 
 function renderQuestion(room){
   const alreadyAnswered = room.answers && room.answers[playerId];
-  const stage = document.getElementById('stage');
+  const startedAt = room.questionStartedAt || Date.now();
   if(alreadyAnswered){
-    stage.innerHTML = `<div class="qcard">
+    document.getElementById('stage').innerHTML = `<div class="qcard">
       <div style="font-size:2.5rem; text-align:center;">✅</div>
       <p style="text-align:center; font-weight:800;">تم إرسال إجابتك!</p>
       <p style="text-align:center;">بانتظار انتهاء الوقت أو إجابة باقي الطلاب...</p>
     </div>`;
     return;
   }
+  // فاصل "استعداد" قصير قبل بدء عدّ الإجابة، ليضمن وصول السؤال للجميع بنفس الوقت
+  // بغض النظر عن فرق سرعة الشبكة بين الأجهزة — بدون هذا قد يصل السؤال متأخرًا
+  // ويكتشف الطالب أن الوقت شارف على الانتهاء فور ظهوره.
+  if(Date.now() < startedAt){ renderGetReady(room, startedAt); return; }
+  renderAnswerable(room, startedAt);
+}
+
+function renderGetReady(room, startedAt){
+  const stage = document.getElementById('stage');
+  stage.innerHTML = `
+    <div class="qcard">
+      <div class="qmeta"><span class="badge">سؤال ${room.currentIndex+1} / ${room.totalQuestions}</span></div>
+      <div style="font-size:2.5rem; text-align:center;">🚦</div>
+      <p style="text-align:center; font-weight:800;" id="ready-count">استعدّوا...</p>
+      <p class="hint" style="text-align:center;">اقرؤوا السؤال، سيبدأ العدّ خلال لحظات</p>
+      <div class="qtext" style="opacity:.65;">${EGL.escapeHtml(room.currentQuestion.text)}</div>
+    </div>`;
+  clearInterval(questionTickInt);
+  questionTickInt = setInterval(()=>{
+    const left = Math.ceil((startedAt - Date.now())/1000);
+    const el = document.getElementById('ready-count');
+    if(el) el.textContent = left > 0 ? `يبدأ العدّ خلال ${left}...` : 'انطلقوا! 🚀';
+    if(Date.now() >= startedAt){
+      clearInterval(questionTickInt);
+      renderAnswerable(room, startedAt);
+    }
+  }, 250);
+}
+
+function renderAnswerable(room, startedAt){
+  const stage = document.getElementById('stage');
   stage.innerHTML = `
     <div class="qcard">
       <div class="qmeta"><span class="badge">سؤال ${room.currentIndex+1} / ${room.totalQuestions}</span></div>
@@ -144,7 +175,7 @@ function renderQuestion(room){
     </div>`;
   document.getElementById('opts').querySelectorAll('.option-btn').forEach(btn=>btn.addEventListener('click', ()=>submitAnswer(parseInt(btn.dataset.i), room)));
 
-  const startedAt = room.questionStartedAt || Date.now();
+  clearInterval(questionTickInt);
   questionTickInt = setInterval(()=>{
     const elapsed = (Date.now() - startedAt)/1000;
     const left = Math.max(0, EGLLive.QUESTION_TIME - elapsed);

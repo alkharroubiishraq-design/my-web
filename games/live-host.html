@@ -43,7 +43,7 @@
 <script src="../js/live-common.js"></script>
 <script>
 const HOST_STATE_KEY = 'egl_live_host_state_v1';
-let code, hostQuestions, latestRoom = null, unsubscribe = null, questionTimerInt, questionTimeLeft, finishedThisRound;
+let code, hostQuestions, latestRoom = null, unsubscribe = null, questionTimerInt, finishedThisRound;
 
 async function init(){
   EGL.seedIfEmpty();
@@ -153,8 +153,11 @@ async function broadcastQuestion(index){
   finishedThisRound = false;
   const q = hostQuestions[index];
   const redacted = { index, text: q.text, options: q.options, type: q.type, points: q.points||10, revealCorrectIndex: null, revealAnswerText: null };
+  // نبدأ عدّ الإجابة بعد فاصل "استعداد" قصير (وقت مستقبلي مشترك) لضمان وصول
+  // السؤال لجميع الأجهزة قبل أن يبدأ العدّ فعليًا — يمنع ضياع وقت الطالب بسبب تأخر المزامنة.
+  const startsAt = Date.now() + EGLLive.QUESTION_BUFFER * 1000;
   await EGLLive.updateRoom(code, {
-    phase: 'question', currentIndex: index, currentQuestion: redacted, answers: {}, questionStartedAt: Date.now()
+    phase: 'question', currentIndex: index, currentQuestion: redacted, answers: {}, questionStartedAt: startsAt
   });
 }
 
@@ -167,18 +170,28 @@ function renderQuestion(room){
     <div class="qcard">
       <div class="qmeta"><span class="badge">سؤال ${room.currentIndex+1} / ${room.totalQuestions}</span><span class="badge" id="answered-count">✍️ ${answeredCount} / ${totalPlayers} أجابوا</span></div>
       <div class="timer-bar"><div id="q-timer-fill" style="width:100%"></div></div>
+      <p class="hint" id="ready-hint" style="text-align:center; min-height:20px;"></p>
       <div class="qtext">${EGL.escapeHtml(room.currentQuestion.text)}</div>
       <div class="options">${room.currentQuestion.options.map(o=>`<div class="option-btn" style="cursor:default;">${EGL.escapeHtml(o)}</div>`).join('')}</div>
       <button class="btn btn-outline btn-block" id="btn-finish-round" style="margin-top:14px;">⏭ إنهاء الجولة الآن</button>
     </div>`;
   document.getElementById('btn-finish-round').addEventListener('click', finishQuestion);
-  questionTimeLeft = EGLLive.QUESTION_TIME;
+  const startedAt = room.questionStartedAt || Date.now();
+  const deadline = startedAt + EGLLive.QUESTION_TIME * 1000;
   questionTimerInt = setInterval(()=>{
-    questionTimeLeft--;
+    const now = Date.now();
     const fill = document.getElementById('q-timer-fill');
-    if(fill) fill.style.width = Math.max(0,(questionTimeLeft/EGLLive.QUESTION_TIME*100))+'%';
-    if(questionTimeLeft<=0) finishQuestion();
-  }, 1000);
+    const hint = document.getElementById('ready-hint');
+    if(now < startedAt){
+      if(hint) hint.textContent = `🚦 يبدأ عدّ الإجابة خلال ${Math.ceil((startedAt-now)/1000)}...`;
+      if(fill) fill.style.width = '100%';
+      return;
+    }
+    if(hint) hint.textContent = '';
+    const left = Math.max(0, (deadline-now)/1000);
+    if(fill) fill.style.width = (left/EGLLive.QUESTION_TIME*100)+'%';
+    if(left<=0) finishQuestion();
+  }, 250);
 }
 
 async function finishQuestion(){
