@@ -35,7 +35,7 @@ const EGLLive = (() => {
   // فحص اتصال بسيط: يحاول قراءة وثيقة وهمية. ينجح حتى لو كانت غير موجودة.
   async function checkConnection() {
     try {
-      await db().collection('rooms').doc('__ping__').get();
+      await db().collection('rooms').doc('connection-check').get();
       return { ok: true };
     } catch (e) {
       return { ok: false, error: e.message || String(e) };
