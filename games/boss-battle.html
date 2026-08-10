@@ -1,0 +1,139 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>معركة الزعيم — ساحة الصف</title>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>🐉</text></svg>">
+<link rel="stylesheet" href="../css/style.css">
+<style>
+  .boss-emoji{ font-size:6rem; text-align:center; transition:.2s; }
+  .boss-emoji.hit{ animation: shake .4s; }
+  @keyframes shake{ 0%,100%{transform:translateX(0);} 25%{transform:translateX(-12px);} 75%{transform:translateX(12px);} }
+  .hp-bar{ width:100%; max-width:500px; height:24px; background: var(--surface-2); border-radius:999px; margin: 10px auto 6px; overflow:hidden; border:2px solid rgba(255,255,255,.1); }
+  .hp-fill{ height:100%; background: linear-gradient(90deg,#ff5c5c,#ff9a5c); transition: width .5s ease; }
+  .hp-label{ text-align:center; font-weight:800; margin-bottom:14px; }
+  .lives-row{ text-align:center; font-size:1.8rem; margin-bottom:10px; }
+</style>
+</head>
+<body>
+<nav class="topnav"><div class="container">
+  <a class="brand" href="../index.html"><span class="logo">🎲</span> ساحة الصف</a>
+  <div class="navlinks"><a href="../index.html">الرئيسية</a><a href="../index.html#games">الألعاب</a><a href="../questions.html">بنك الأسئلة</a></div>
+</div></nav>
+
+<div class="game-shell">
+  <div class="game-header container">
+    <h1>🐉 معركة الزعيم</h1>
+    <p>يتحد الصف بأكمله لهزيمة الزعيم — كل إجابة صحيحة تُلحق به ضررًا، وكل خطأ يكلّفكم قلبًا!</p>
+  </div>
+  <div class="game-stage container" id="stage"></div>
+</div>
+
+<script src="../js/common.js"></script>
+<script>
+const MAX_HP = 100, DAMAGE = 20, LIVES = 3;
+let pool, poolIdx, hp, lives, answered;
+
+function init(){
+  const stage = document.getElementById('stage');
+  stage.innerHTML = `<div class="empty-state"><div class="emoji">🐉</div><h3>هيّئ اللعبة</h3><p>يعمل الصف بأكمله معًا لهزيمة الزعيم — لا حاجة لتقسيم فرق.</p>
+    <button class="btn btn-primary" id="btn-setup">ابدأ الإعداد 🎮</button></div>`;
+  document.getElementById('btn-setup').addEventListener('click', openSetup);
+  openSetup();
+}
+function openSetup(){
+  EGL.openSetupModal({ title:'إعداد معركة الزعيم', allowIndividual:true, allowTeams:false, needQuestions:true, qType:['mcq','tf'], minPlayers:1, maxPlayers:1, playersLabel:'اسم الصف/الفريق' }, startGame);
+}
+
+function startGame(cfg){
+  const bank = EGL.getBank(cfg.bankId);
+  pool = EGL.shuffle(bank.questions.filter(q=>q.type==='mcq'||q.type==='tf'));
+  if(pool.length < 3){ EGL.toast('تحتاج هذه اللعبة أسئلة اختيار/صح-خطأ (٣ على الأقل)'); return; }
+  poolIdx = 0;
+  hp = MAX_HP;
+  lives = LIVES;
+  const stage = document.getElementById('stage');
+  stage.innerHTML = `
+    <div class="boss-emoji" id="boss-emoji">🐉</div>
+    <div class="hp-bar"><div class="hp-fill" id="hp-fill" style="width:100%"></div></div>
+    <div class="hp-label" id="hp-label"></div>
+    <div class="lives-row" id="lives-row"></div>
+    <div id="q-wrap"></div>`;
+  updateHud();
+  nextQuestion();
+}
+
+function updateHud(){
+  document.getElementById('hp-fill').style.width = Math.max(0,hp) + '%';
+  document.getElementById('hp-label').textContent = `❤️‍🔥 صحة الزعيم: ${Math.max(0,hp)} / ${MAX_HP}`;
+  document.getElementById('lives-row').textContent = '💙'.repeat(Math.max(0,lives)) + '🖤'.repeat(LIVES-Math.max(0,lives));
+}
+
+function nextQuestion(){
+  if(poolIdx >= pool.length){ pool = EGL.shuffle(pool); poolIdx = 0; }
+  answered = false;
+  const q = pool[poolIdx++];
+  const wrap = document.getElementById('q-wrap');
+  wrap.innerHTML = `
+    <div class="qcard">
+      <div class="qtext">${EGL.escapeHtml(q.text)}</div>
+      <div class="options" id="opts">${q.options.map((o,i)=>`<button class="option-btn" data-i="${i}">${EGL.escapeHtml(o)}</button>`).join('')}</div>
+    </div>`;
+  wrap.querySelectorAll('.option-btn').forEach(btn=>btn.addEventListener('click', ()=>attack(parseInt(btn.dataset.i), q)));
+}
+
+function attack(i, q){
+  if(answered) return;
+  answered = true;
+  document.querySelectorAll('.option-btn').forEach(b=>b.disabled=true);
+  const boss = document.getElementById('boss-emoji');
+  if(i === q.correctIndex){
+    document.querySelectorAll('.option-btn')[i].classList.add('correct');
+    hp -= DAMAGE;
+    boss.classList.add('hit');
+    setTimeout(()=>boss.classList.remove('hit'), 400);
+    EGL.beep('correct'); EGL.confetti(25);
+  } else {
+    document.querySelectorAll('.option-btn')[i].classList.add('wrong');
+    document.querySelectorAll('.option-btn')[q.correctIndex].classList.add('correct');
+    lives--;
+    EGL.beep('wrong');
+  }
+  updateHud();
+  setTimeout(()=>{
+    if(hp <= 0){ endGame(true); return; }
+    if(lives <= 0){ endGame(false); return; }
+    nextQuestion();
+  }, 1300);
+}
+
+function endGame(won){
+  const stage = document.getElementById('stage');
+  if(won){
+    EGL.confetti(150); EGL.beep('win');
+    stage.innerHTML = `<div class="qcard">
+      <div style="font-size:3.5rem;">🏆</div><h2>هزمتم الزعيم!</h2>
+      <p>عمل ممتاز أيها الصف — تعاون رائع!</p>
+      <div style="display:flex; gap:10px; justify-content:center; margin-top:16px;">
+        <button class="btn btn-primary" onclick="location.reload()">🔁 معركة جديدة</button>
+        <a class="btn btn-outline" href="../index.html">🏠 الألعاب الأخرى</a>
+      </div>
+    </div>`;
+  } else {
+    EGL.beep('wrong');
+    stage.innerHTML = `<div class="qcard">
+      <div style="font-size:3.5rem;">💥</div><h2>هزمكم الزعيم هذه المرة!</h2>
+      <p>صحة الزعيم المتبقية: ${Math.max(0,hp)} / ${MAX_HP} — حاولوا مرة أخرى!</p>
+      <div style="display:flex; gap:10px; justify-content:center; margin-top:16px;">
+        <button class="btn btn-primary" onclick="location.reload()">🔁 حاول مرة أخرى</button>
+        <a class="btn btn-outline" href="../index.html">🏠 الألعاب الأخرى</a>
+      </div>
+    </div>`;
+  }
+}
+
+init();
+</script>
+</body>
+</html>

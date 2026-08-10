@@ -1,0 +1,132 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>الحقيقتان وكذبة — ساحة الصف</title>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>🎭</text></svg>">
+<link rel="stylesheet" href="../css/style.css">
+<style>
+  .vote-row{ display:grid; grid-template-columns: repeat(3,1fr); gap:14px; margin: 20px 0; }
+  .vote-btn{ padding:26px 10px; border-radius:16px; border:3px solid transparent; background: var(--surface-2); cursor:pointer; text-align:center; }
+  .vote-btn .num{ font-size:2.2rem; font-weight:900; }
+  .vote-btn .count{ font-size:1.1rem; color: var(--accent-2); font-weight:800; margin-top:6px; }
+  .vote-btn.picked{ border-color: var(--danger); background: rgba(255,92,92,.2); }
+  .stat-line{ text-align:center; color: var(--text-dim); margin-top:10px; }
+</style>
+</head>
+<body>
+<nav class="topnav"><div class="container">
+  <a class="brand" href="../index.html"><span class="logo">🎲</span> ساحة الصف</a>
+  <div class="navlinks"><a href="../index.html">الرئيسية</a><a href="../index.html#games">الألعاب</a><a href="../questions.html">بنك الأسئلة</a></div>
+</div></nav>
+
+<div class="game-shell">
+  <div class="game-header container">
+    <h1>🎭 الحقيقتان وكذبة</h1>
+    <p>يقف طالب ويذكر 3 معلومات عن نفسه — حقيقتان وكذبة واحدة. هل يستطيع الصف اكتشاف الكذبة؟</p>
+  </div>
+  <div class="game-stage container" id="stage"></div>
+</div>
+
+<script src="../js/common.js"></script>
+<script>
+let names = [], votes = [0,0,0], correctGuesses = 0, totalRounds = 0;
+
+function init(){
+  const overlay = document.createElement('div');
+  overlay.className = 'modal-overlay';
+  overlay.innerHTML = `
+    <div class="modal">
+      <h2>إعداد الحقيقتان وكذبة 🎭</h2>
+      <label>أسماء الطلاب (اختياري — سطر لكل اسم لاستخدام المُنتقي العشوائي)</label>
+      <textarea id="tt-names" placeholder="أحمد
+سارة
+ليان
+..."></textarea>
+      <div class="modal-actions">
+        <button class="btn btn-primary" id="tt-start">ابدأ 🚀</button>
+      </div>
+    </div>`;
+  document.body.appendChild(overlay);
+  overlay.querySelector('#tt-start').addEventListener('click', ()=>{
+    names = overlay.querySelector('#tt-names').value.split('\n').map(s=>s.trim()).filter(Boolean);
+    overlay.remove();
+    startRound();
+  });
+}
+
+function startRound(){
+  votes = [0,0,0];
+  const stage = document.getElementById('stage');
+  stage.innerHTML = `
+    <div class="qcard">
+      ${names.length ? `<button class="btn btn-gold" id="btn-pick">🎯 اختر طالبًا عشوائيًا</button><div id="picker-result" style="margin:10px 0;"></div>` : ''}
+      <p class="hint">ليقف الطالب ويذكر 3 معلومات عن نفسه بصوت مرتفع أمام الصف: حقيقتان وكذبة واحدة.</p>
+      <p>بعد الاستماع، على الصف التصويت: أي رقم هو الكذبة برأيكم؟ (ارفعوا أيديكم، والمعلم يسجّل الأصوات)</p>
+      <div class="vote-row" id="vote-row"></div>
+      <button class="btn btn-primary btn-block" id="btn-reveal">🔍 كشف الكذبة</button>
+      <div class="stat-line" id="stat-line"></div>
+    </div>`;
+  const voteRow = document.getElementById('vote-row');
+  voteRow.innerHTML = [0,1,2].map(i=>`
+    <div class="vote-btn" data-i="${i}">
+      <div class="num">${i+1}️⃣</div>
+      <div class="count" id="vcount-${i}">0 صوت</div>
+      <button class="btn btn-outline btn-sm" data-add="${i}">+ صوت</button>
+    </div>`).join('');
+  voteRow.querySelectorAll('button[data-add]').forEach(btn=>btn.addEventListener('click', ()=>{
+    const i = parseInt(btn.dataset.add);
+    votes[i]++;
+    document.getElementById('vcount-'+i).textContent = votes[i] + ' صوت';
+    EGL.beep('tick');
+  }));
+  if(names.length) document.getElementById('btn-pick').addEventListener('click', pickStudent);
+  document.getElementById('btn-reveal').addEventListener('click', openReveal);
+  updateStat();
+}
+
+function pickStudent(){
+  const result = document.getElementById('picker-result');
+  let count = 0;
+  const spin = setInterval(()=>{
+    result.innerHTML = `<strong>${EGL.escapeHtml(EGL.pick(names))}</strong>`;
+    count++;
+    if(count > 12){ clearInterval(spin); result.innerHTML = `🎉 <strong>${EGL.escapeHtml(EGL.pick(names))}</strong>`; EGL.beep('win'); }
+  }, 90);
+}
+
+function openReveal(){
+  const maxVotes = Math.max(...votes);
+  const guessedIdx = votes.indexOf(maxVotes);
+  const stage = document.getElementById('stage');
+  const area = document.createElement('div');
+  area.className = 'qcard';
+  area.style.marginTop = '10px';
+  area.innerHTML = `<p>ما هو رقم العبارة الكاذبة فعليًا؟</p>
+    <div style="display:flex; gap:10px; justify-content:center;">
+      ${[0,1,2].map(i=>`<button class="btn btn-accent btn-sm" data-i="${i}">${i+1}️⃣</button>`).join('')}
+    </div>`;
+  document.querySelector('.game-stage .qcard').after(area);
+  area.querySelectorAll('button').forEach(btn=>btn.addEventListener('click', ()=>{
+    const lieIdx = parseInt(btn.dataset.i);
+    totalRounds++;
+    const classCorrect = lieIdx === guessedIdx && maxVotes > 0;
+    if(classCorrect) correctGuesses++;
+    EGL.beep(classCorrect?'win':'wrong');
+    EGL.confetti(classCorrect?60:20);
+    area.innerHTML = `<p style="text-align:center; font-weight:800; font-size:1.2rem;">${classCorrect ? '🎉 أحسنتم! الصف اكتشف الكذبة!' : '😄 خُدع الصف! العبارة رقم '+(lieIdx+1)+' كانت الكذبة.'}</p>
+      <button class="btn btn-primary btn-block" id="btn-next-round">👤 الطالب التالي</button>`;
+    document.getElementById('btn-next-round').addEventListener('click', startRound);
+  }));
+}
+
+function updateStat(){
+  const el = document.getElementById('stat-line');
+  if(el) el.textContent = totalRounds ? `📊 اكتشف الصف الكذبة ${correctGuesses} من ${totalRounds} مرة` : '';
+}
+
+init();
+</script>
+</body>
+</html>

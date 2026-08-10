@@ -1,0 +1,143 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>الصندوق الغامض — ساحة الصف</title>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>🎁</text></svg>">
+<link rel="stylesheet" href="../css/style.css">
+<style>
+  .box-emoji{ font-size:5rem; text-align:center; margin: 10px 0; }
+  .box-emoji.shaking{ animation: shakeBox .5s infinite; }
+  @keyframes shakeBox{ 0%,100%{transform:rotate(-6deg);} 50%{transform:rotate(6deg);} }
+  .outcome-reveal{ font-size:2.2rem; font-weight:900; text-align:center; margin: 14px 0; }
+</style>
+</head>
+<body>
+<nav class="topnav"><div class="container">
+  <a class="brand" href="../index.html"><span class="logo">🎲</span> ساحة الصف</a>
+  <div class="navlinks"><a href="../index.html">الرئيسية</a><a href="../index.html#games">الألعاب</a><a href="../questions.html">بنك الأسئلة</a></div>
+</div></nav>
+
+<div class="game-shell">
+  <div class="game-header container">
+    <h1>🎁 الصندوق الغامض</h1>
+    <p>في كل دور: خذ نقاطًا مضمونة، أو جازف وافتح الصندوق الغامض — قد تربح كبيرًا أو تقع بمقلب طريف!</p>
+  </div>
+  <div class="game-stage container" id="stage"></div>
+</div>
+
+<script src="../js/common.js"></script>
+<script>
+const OUTCOMES = [
+  { w:30, pts:25, label:'🎉 ربحت 25 نقطة!' },
+  { w:12, pts:40, label:'💎 جائزة كبرى! 40 نقطة!' },
+  { w:28, pts:-10, label:'😬 خسرت 10 نقاط!' },
+  { w:15, pts:0, label:'🤪 مقلب! قف وصفّق 5 مرات!' },
+  { w:15, pts:0, label:'😂 مقلب! غنِّ جملة من أغنيتك المفضلة!' },
+];
+let sb, players, turnI, TURNS_PER_PLAYER = 3, turnsLeft, boxOpened;
+
+function init(){
+  const stage = document.getElementById('stage');
+  stage.innerHTML = `<div class="empty-state"><div class="emoji">🎁</div><h3>هيّئ اللعبة</h3><p>لا تحتاج بنك أسئلة — فقط أضِف اللاعبين أو الفرق.</p>
+    <button class="btn btn-primary" id="btn-setup">ابدأ الإعداد 🎮</button></div>`;
+  document.getElementById('btn-setup').addEventListener('click', openSetup);
+  openSetup();
+}
+function openSetup(){
+  EGL.openSetupModal({ title:'إعداد الصندوق الغامض', allowIndividual:true, allowTeams:true, skipBank:true }, startGame);
+}
+
+function startGame(cfg){
+  players = cfg.players;
+  turnI = 0;
+  turnsLeft = players.length * TURNS_PER_PLAYER;
+  const stage = document.getElementById('stage');
+  stage.innerHTML = `<div id="sb-wrap" class="scoreboard"></div><div id="game-area"></div>`;
+  sb = new EGL.Scoreboard(document.getElementById('sb-wrap'), players);
+  nextTurn();
+}
+
+function nextTurn(){
+  if(turnsLeft <= 0){ showResults(); return; }
+  turnsLeft--;
+  sb.setActive(turnI);
+  boxOpened = false;
+  const area = document.getElementById('game-area');
+  area.innerHTML = `
+    <div class="qcard">
+      <p class="hint">دور: <strong style="color:var(--accent-2)">${players[turnI].emoji} ${EGL.escapeHtml(players[turnI].name)}</strong></p>
+      <div class="box-emoji" id="box-emoji">🎁</div>
+      <div class="outcome-reveal" id="outcome-reveal"></div>
+      <div style="display:flex; gap:10px; justify-content:center; flex-wrap:wrap;">
+        <button class="btn btn-accent" id="btn-safe">✅ نقاط مضمونة (+10)</button>
+        <button class="btn btn-gold" id="btn-open">🎁 افتح الصندوق الغامض</button>
+      </div>
+    </div>`;
+  document.getElementById('btn-safe').addEventListener('click', takeSafe);
+  document.getElementById('btn-open').addEventListener('click', openBox);
+}
+
+function takeSafe(){
+  sb.addScore(turnI, 10);
+  EGL.beep('correct'); EGL.confetti(15);
+  advanceTurn();
+}
+
+function pickOutcome(){
+  const total = OUTCOMES.reduce((s,o)=>s+o.w,0);
+  let r = Math.random()*total;
+  for(const o of OUTCOMES){ if(r < o.w) return o; r -= o.w; }
+  return OUTCOMES[0];
+}
+
+function openBox(){
+  if(boxOpened) return;
+  boxOpened = true;
+  document.getElementById('btn-safe').disabled = true;
+  document.getElementById('btn-open').disabled = true;
+  const boxEl = document.getElementById('box-emoji');
+  boxEl.classList.add('shaking');
+  EGL.beep('tick');
+  setTimeout(()=>{
+    boxEl.classList.remove('shaking');
+    const outcome = pickOutcome();
+    boxEl.textContent = outcome.pts > 0 ? '🤩' : (outcome.pts < 0 ? '😱' : '😂');
+    document.getElementById('outcome-reveal').textContent = outcome.label;
+    if(outcome.pts !== 0){
+      sb.addScore(turnI, outcome.pts);
+      EGL.beep(outcome.pts>0?'win':'wrong');
+    } else {
+      EGL.beep('tick');
+    }
+    if(outcome.pts >= 25) EGL.confetti(80);
+    setTimeout(advanceTurn, 1800);
+  }, 1200);
+}
+
+function advanceTurn(){
+  turnI = (turnI+1) % players.length;
+  setTimeout(nextTurn, 600);
+}
+
+function showResults(){
+  EGL.confetti(100); EGL.beep('win');
+  const ranking = sb.ranking();
+  const stage = document.getElementById('stage');
+  stage.innerHTML = `<div class="qcard">
+    <div style="font-size:3rem;">🏆</div><h2>انتهت الجولات!</h2>
+    <div class="scoreboard" style="justify-content:center;">
+      ${ranking.map((p,r)=>`<div class="player-chip ${r===0?'active':''}"><div style="font-size:1.4rem;">${r===0?'🥇':r===1?'🥈':r===2?'🥉':p.emoji}</div><div class="pname">${EGL.escapeHtml(p.name)}</div><div class="pscore">${p.score}</div></div>`).join('')}
+    </div>
+    <div style="display:flex; gap:10px; justify-content:center; margin-top:16px;">
+      <button class="btn btn-primary" onclick="location.reload()">🔁 لعب مرة أخرى</button>
+      <a class="btn btn-outline" href="../index.html">🏠 الألعاب الأخرى</a>
+    </div>
+  </div>`;
+}
+
+init();
+</script>
+</body>
+</html>

@@ -1,0 +1,138 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>العقل الجماعي — ساحة الصف</title>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>🧠</text></svg>">
+<link rel="stylesheet" href="../css/style.css">
+<style>
+  .prompt-big{ font-size:1.7rem; font-weight:900; text-align:center; margin: 18px 0; color: var(--accent-2); }
+  .team-check-row{ display:flex; align-items:center; justify-content:space-between; background: var(--surface-2); border-radius:12px; padding:12px 16px; margin-bottom:10px; }
+</style>
+</head>
+<body>
+<nav class="topnav"><div class="container">
+  <a class="brand" href="../index.html"><span class="logo">🎲</span> ساحة الصف</a>
+  <div class="navlinks"><a href="../index.html">الرئيسية</a><a href="../index.html#games">الألعاب</a><a href="../questions.html">بنك الأسئلة</a></div>
+</div></nav>
+
+<div class="game-shell">
+  <div class="game-header container">
+    <h1>🧠 العقل الجماعي</h1>
+    <p>يفكر كل عضو بالفريق بإجابته بصمت دون نقاش — إذا تطابقت إجابات الفريق كله، يفوزون بالنقاط!</p>
+  </div>
+  <div class="game-stage container" id="stage"></div>
+</div>
+
+<script src="../js/common.js"></script>
+<script>
+const PROMPTS = [
+  'اذكروا لونًا', 'اذكروا حيوانًا', 'اذكروا رقمًا من 1 إلى 10', 'اذكروا فاكهة',
+  'اذكروا مهنة', 'اذكروا بلدًا عربيًا', 'اذكروا وجبة طعام', 'اذكروا رياضة',
+  'اذكروا اسم فيلم أو مسلسل', 'اذكروا فصلًا من فصول السنة', 'اذكروا كوكبًا',
+  'اذكروا آلة موسيقية', 'اذكروا وسيلة مواصلات', 'اذكروا مادة دراسية', 'اذكروا يومًا من أيام الأسبوع',
+];
+const THINK_TIME = 12, ROUNDS = 8;
+let sb, teams, pool, round, timerInt, timeLeft;
+
+function init(){
+  const stage = document.getElementById('stage');
+  stage.innerHTML = `<div class="empty-state"><div class="emoji">🧠</div><h3>هيّئ اللعبة</h3><p>قسّم الصف إلى فرق (٣ أعضاء أو أكثر لكل فريق مثاليًا) — لا تحتاج بنك أسئلة.</p>
+    <button class="btn btn-primary" id="btn-setup">ابدأ الإعداد 🎮</button></div>`;
+  document.getElementById('btn-setup').addEventListener('click', openSetup);
+  openSetup();
+}
+function openSetup(){
+  EGL.openSetupModal({ title:'إعداد العقل الجماعي', allowIndividual:false, allowTeams:true, skipBank:true, minPlayers:2, maxPlayers:6 }, startGame);
+}
+
+function startGame(cfg){
+  teams = cfg.players;
+  pool = EGL.shuffle(PROMPTS);
+  round = 0;
+  const stage = document.getElementById('stage');
+  stage.innerHTML = `<div id="sb-wrap" class="scoreboard"></div><div id="round-badge" class="badge" style="display:block; text-align:center; margin-bottom:6px;"></div><div id="game-area"></div>`;
+  sb = new EGL.Scoreboard(document.getElementById('sb-wrap'), teams);
+  nextRound();
+}
+
+function nextRound(){
+  round++;
+  if(round > ROUNDS){ showResults(); return; }
+  if(round > pool.length) pool = EGL.shuffle(PROMPTS);
+  document.getElementById('round-badge').textContent = `🧠 الجولة ${round} / ${ROUNDS}`;
+  renderThink();
+}
+
+function renderThink(){
+  clearInterval(timerInt);
+  const prompt = pool[(round-1) % pool.length];
+  window._curPrompt = prompt;
+  timeLeft = THINK_TIME;
+  const area = document.getElementById('game-area');
+  area.innerHTML = `
+    <div class="qcard">
+      <p class="hint">فكّروا بصمت... لا تتحدثوا مع فريقكم!</p>
+      <div class="prompt-big">${EGL.escapeHtml(prompt)}</div>
+      <div class="timer-bar"><div id="timer-fill" style="width:100%"></div></div>
+      <p class="hint" style="text-align:center;">عند انتهاء الوقت، ليقل كل عضو إجابته بصوت مرتفع بنفس اللحظة!</p>
+    </div>`;
+  timerInt = setInterval(()=>{
+    timeLeft--;
+    const fill = document.getElementById('timer-fill');
+    if(fill) fill.style.width = (timeLeft/THINK_TIME*100)+'%';
+    if(timeLeft<=0){ clearInterval(timerInt); EGL.beep('win'); renderCheck(); }
+  }, 1000);
+}
+
+function renderCheck(){
+  const area = document.getElementById('game-area');
+  area.innerHTML = `
+    <div class="qcard">
+      <p>الآن — أي الفرق تطابقت إجاباته؟</p>
+      <div id="team-checks"></div>
+    </div>`;
+  const wrap = document.getElementById('team-checks');
+  wrap.innerHTML = teams.map((t,i)=>`
+    <div class="team-check-row">
+      <span>${t.emoji} ${EGL.escapeHtml(t.name)}</span>
+      <span>
+        <button class="btn btn-accent btn-sm" data-i="${i}" data-v="1">✅ تطابقت (+15)</button>
+        <button class="btn btn-outline btn-sm" data-i="${i}" data-v="0">❌ لم تتطابق</button>
+      </span>
+    </div>`).join('');
+  wrap.querySelectorAll('button').forEach(btn=>btn.addEventListener('click', ()=>{
+    const i = parseInt(btn.dataset.i);
+    const match = btn.dataset.v === '1';
+    wrap.querySelectorAll(`button[data-i="${i}"]`).forEach(b=>b.disabled=true);
+    if(match){ sb.addScore(i, 15); EGL.beep('correct'); EGL.confetti(25); }
+    checkAllDone(wrap);
+  }));
+}
+
+function checkAllDone(wrap){
+  const remaining = Array.from(wrap.querySelectorAll('button:not(:disabled)'));
+  if(remaining.length === 0) setTimeout(nextRound, 900);
+}
+
+function showResults(){
+  EGL.confetti(100); EGL.beep('win');
+  const ranking = sb.ranking();
+  const stage = document.getElementById('stage');
+  stage.innerHTML = `<div class="qcard">
+    <div style="font-size:3rem;">🏆</div><h2>انتهت الجولات!</h2>
+    <div class="scoreboard" style="justify-content:center;">
+      ${ranking.map((p,r)=>`<div class="player-chip ${r===0?'active':''}"><div style="font-size:1.4rem;">${r===0?'🥇':r===1?'🥈':r===2?'🥉':p.emoji}</div><div class="pname">${EGL.escapeHtml(p.name)}</div><div class="pscore">${p.score}</div></div>`).join('')}
+    </div>
+    <div style="display:flex; gap:10px; justify-content:center; margin-top:16px;">
+      <button class="btn btn-primary" onclick="location.reload()">🔁 لعب مرة أخرى</button>
+      <a class="btn btn-outline" href="../index.html">🏠 الألعاب الأخرى</a>
+    </div>
+  </div>`;
+}
+
+init();
+</script>
+</body>
+</html>

@@ -1,0 +1,179 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>غرفة الهروب الصفية — ساحة الصف</title>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>🔓</text></svg>">
+<link rel="stylesheet" href="../css/style.css">
+<style>
+  .locks-row{ display:flex; gap:10px; justify-content:center; margin: 16px 0; flex-wrap:wrap; }
+  .lock-icon{ font-size:2rem; width:52px; height:52px; border-radius:14px; background: var(--surface-2); display:flex; align-items:center; justify-content:center; transition:.3s; }
+  .lock-icon.opened{ background: rgba(43,224,138,.3); transform: scale(1.1) rotate(-8deg); }
+  .big-timer{ font-size:2.4rem; font-weight:900; text-align:center; margin: 10px 0; color: var(--accent-2); }
+  .big-timer.danger{ color: var(--danger); animation: pulseDanger 1s infinite; }
+  @keyframes pulseDanger{ 0%,100%{transform:scale(1);} 50%{transform:scale(1.08);} }
+  .penalty-flash{ position:fixed; inset:0; background: rgba(255,92,92,.25); z-index:300; pointer-events:none; animation: flashOut .6s forwards; }
+  @keyframes flashOut{ to{ opacity:0; } }
+</style>
+</head>
+<body>
+<nav class="topnav"><div class="container">
+  <a class="brand" href="../index.html"><span class="logo">🎲</span> ساحة الصف</a>
+  <div class="navlinks"><a href="../index.html">الرئيسية</a><a href="../index.html#games">الألعاب</a><a href="../questions.html">بنك الأسئلة</a></div>
+</div></nav>
+
+<div class="game-shell">
+  <div class="game-header container">
+    <h1>🔓 غرفة الهروب الصفية</h1>
+    <p>يعمل الصف كفريق واحد لفتح كل الأقفال قبل نفاد الوقت — كل إجابة خاطئة تكلّفكم وقتًا ثمينًا!</p>
+  </div>
+  <div class="game-stage container" id="stage"></div>
+</div>
+
+<script src="../js/common.js"></script>
+<script>
+let questions, lockIdx, timeLeft, timerInt, answered, totalTime;
+
+function init(){
+  const stage = document.getElementById('stage');
+  stage.innerHTML = `<div class="empty-state"><div class="emoji">🔓</div><h3>هيّئ اللعبة</h3><p>يعمل الصف بأكمله معًا لفتح الأقفال — لا حاجة لتقسيم فرق.</p>
+    <button class="btn btn-primary" id="btn-setup">ابدأ الإعداد 🎮</button></div>`;
+  document.getElementById('btn-setup').addEventListener('click', openSetup);
+  openSetup();
+}
+function openSetup(){
+  EGL.openSetupModal({
+    title:'إعداد غرفة الهروب', allowIndividual:true, allowTeams:false, needQuestions:true, qType:['mcq','tf'],
+    minPlayers:1, maxPlayers:1, playersLabel:'اسم الصف/الفريق',
+    extraFieldsHtml: `<label>عدد الأقفال</label><div class="chip-group" id="er-locks-chips" style="margin-bottom:16px;">
+      <div class="chip" data-v="4">4 (سريعة)</div>
+      <div class="chip selected" data-v="6">6 (متوسطة)</div>
+      <div class="chip" data-v="8">8 (طويلة)</div>
+    </div>
+    <input type="hidden" id="er-locks-value" data-extra="locks" value="6">
+    <label>الوقت الكلي (دقائق)</label>
+    <div class="chip-group" id="er-time-chips" style="margin-bottom:16px;">
+      <div class="chip" data-v="5">5</div>
+      <div class="chip selected" data-v="8">8</div>
+      <div class="chip" data-v="12">12</div>
+    </div>
+    <input type="hidden" id="er-time-value" data-extra="minutes" value="8">`
+  }, startGame);
+  wireChips('er-locks-chips', 'er-locks-value');
+  wireChips('er-time-chips', 'er-time-value');
+}
+function wireChips(groupId, hiddenId){
+  const group = document.getElementById(groupId);
+  const hidden = document.getElementById(hiddenId);
+  if(!group) return;
+  group.querySelectorAll('.chip').forEach(c=>c.addEventListener('click', ()=>{
+    group.querySelectorAll('.chip').forEach(x=>x.classList.remove('selected'));
+    c.classList.add('selected');
+    hidden.value = c.dataset.v;
+  }));
+}
+
+function startGame(cfg){
+  const bank = EGL.getBank(cfg.bankId);
+  const lockCount = parseInt(cfg.extra.locks) || 6;
+  const minutes = parseInt(cfg.extra.minutes) || 8;
+  const eligible = bank.questions.filter(q=>q.type==='mcq'||q.type==='tf');
+  if(eligible.length < 3){ EGL.toast('تحتاج هذه اللعبة أسئلة اختيار/صح-خطأ (٣ على الأقل)'); return; }
+  questions = EGL.shuffle(eligible).slice(0, lockCount);
+  lockIdx = 0;
+  totalTime = minutes * 60;
+  timeLeft = totalTime;
+  const stage = document.getElementById('stage');
+  stage.innerHTML = `
+    <div class="big-timer" id="big-timer"></div>
+    <div class="locks-row" id="locks-row"></div>
+    <div id="q-wrap"></div>`;
+  document.getElementById('locks-row').innerHTML = questions.map((_,i)=>`<div class="lock-icon" id="lock-${i}">🔒</div>`).join('');
+  updateTimerDisplay();
+  timerInt = setInterval(()=>{
+    timeLeft--;
+    updateTimerDisplay();
+    if(timeLeft<=0){ clearInterval(timerInt); gameOver(false); }
+  }, 1000);
+  renderLock();
+}
+
+function updateTimerDisplay(){
+  const el = document.getElementById('big-timer');
+  if(!el) return;
+  const m = Math.floor(Math.max(0,timeLeft)/60), s = Math.max(0,timeLeft)%60;
+  el.textContent = `⏱ ${m}:${s.toString().padStart(2,'0')}`;
+  el.classList.toggle('danger', timeLeft <= 30);
+}
+
+function renderLock(){
+  if(lockIdx >= questions.length){ clearInterval(timerInt); gameOver(true); return; }
+  answered = false;
+  const q = questions[lockIdx];
+  const wrap = document.getElementById('q-wrap');
+  wrap.innerHTML = `
+    <div class="qcard">
+      <div class="qmeta"><span class="badge">🔒 القفل ${lockIdx+1} / ${questions.length}</span></div>
+      <div class="qtext">${EGL.escapeHtml(q.text)}</div>
+      <div class="options" id="opts">${q.options.map((o,i)=>`<button class="option-btn" data-i="${i}">${EGL.escapeHtml(o)}</button>`).join('')}</div>
+    </div>`;
+  wrap.querySelectorAll('.option-btn').forEach(btn=>btn.addEventListener('click', ()=>tryUnlock(parseInt(btn.dataset.i), q)));
+}
+
+function tryUnlock(i, q){
+  if(answered) return;
+  if(i === q.correctIndex){
+    answered = true;
+    document.querySelectorAll('.option-btn').forEach(b=>b.disabled=true);
+    document.querySelectorAll('.option-btn')[i].classList.add('correct');
+    const lock = document.getElementById('lock-'+lockIdx);
+    lock.textContent = '🔓'; lock.classList.add('opened');
+    EGL.beep('correct'); EGL.confetti(30);
+    lockIdx++;
+    setTimeout(renderLock, 1100);
+  } else {
+    document.querySelectorAll('.option-btn')[i].classList.add('wrong');
+    EGL.beep('wrong');
+    timeLeft = Math.max(0, timeLeft - 20);
+    updateTimerDisplay();
+    const flash = document.createElement('div');
+    flash.className = 'penalty-flash';
+    document.body.appendChild(flash);
+    EGL.toast('❌ خطأ! خسرتم 20 ثانية');
+    setTimeout(()=>flash.remove(), 650);
+  }
+}
+
+function gameOver(won){
+  const stage = document.getElementById('stage');
+  if(won){
+    const bonus = timeLeft;
+    EGL.confetti(150); EGL.beep('win');
+    stage.innerHTML = `<div class="qcard">
+      <div style="font-size:3.5rem;">🎉</div>
+      <h2>هربتم بنجاح!</h2>
+      <p>فتحتم كل الأقفال والوقت المتبقي: <strong style="color:var(--accent-2)">${Math.floor(bonus/60)}:${(bonus%60).toString().padStart(2,'0')}</strong></p>
+      <div style="display:flex; gap:10px; justify-content:center; margin-top:16px;">
+        <button class="btn btn-primary" onclick="location.reload()">🔁 غرفة جديدة</button>
+        <a class="btn btn-outline" href="../index.html">🏠 الألعاب الأخرى</a>
+      </div>
+    </div>`;
+  } else {
+    EGL.beep('wrong');
+    stage.innerHTML = `<div class="qcard">
+      <div style="font-size:3.5rem;">🔔</div>
+      <h2>رنّ الجرس!</h2>
+      <p>وصلتم إلى القفل ${lockIdx+1} من ${questions.length} — حاولوا مرة أخرى!</p>
+      <div style="display:flex; gap:10px; justify-content:center; margin-top:16px;">
+        <button class="btn btn-primary" onclick="location.reload()">🔁 حاول مرة أخرى</button>
+        <a class="btn btn-outline" href="../index.html">🏠 الألعاب الأخرى</a>
+      </div>
+    </div>`;
+  }
+}
+
+init();
+</script>
+</body>
+</html>

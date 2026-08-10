@@ -1,0 +1,136 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>بناء الجسر الجماعي — ساحة الصف</title>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>🤝</text></svg>">
+<link rel="stylesheet" href="../css/style.css">
+<style>
+  .canyon2{ position:relative; display:flex; align-items:flex-end; gap:2px; width:100%; max-width:760px; height:80px; margin: 20px auto; background: linear-gradient(180deg, transparent, rgba(0,0,0,.3)); border-radius:12px; padding:0 6px 6px; }
+  .plank2{ flex:1; height:16px; border-radius:4px; background: rgba(255,255,255,.08); transition:.3s; }
+  .plank2.done{ background: linear-gradient(180deg,#c9954a,#8a5a2a); height:22px; }
+  .walker{ position:absolute; bottom:20px; font-size:1.8rem; transition: right 1s ease; right:0; }
+  .strikes-row{ text-align:center; font-size:1.8rem; margin-bottom:6px; }
+</style>
+</head>
+<body>
+<nav class="topnav"><div class="container">
+  <a class="brand" href="../index.html"><span class="logo">🎲</span> ساحة الصف</a>
+  <div class="navlinks"><a href="../index.html">الرئيسية</a><a href="../index.html#games">الألعاب</a><a href="../questions.html">بنك الأسئلة</a></div>
+</div></nav>
+
+<div class="game-shell">
+  <div class="game-header container">
+    <h1>🤝 بناء الجسر الجماعي</h1>
+    <p>الصف بأكمله يبني جسرًا واحدًا معًا — إجابة أي طالب صحيحة تبنيه، والخطأ يهزّه!</p>
+  </div>
+  <div class="game-stage container" id="stage"></div>
+</div>
+
+<script src="../js/common.js"></script>
+<script>
+const MAX_STRIKES = 3;
+let questions, plankIdx, strikes, answered;
+
+function init(){
+  const stage = document.getElementById('stage');
+  stage.innerHTML = `<div class="empty-state"><div class="emoji">🤝</div><h3>هيّئ اللعبة</h3><p>يعمل الصف بأكمله معًا لبناء الجسر — لا حاجة لتقسيم فرق.</p>
+    <button class="btn btn-primary" id="btn-setup">ابدأ الإعداد 🎮</button></div>`;
+  document.getElementById('btn-setup').addEventListener('click', openSetup);
+  openSetup();
+}
+function openSetup(){
+  EGL.openSetupModal({ title:'إعداد بناء الجسر الجماعي', allowIndividual:true, allowTeams:false, needQuestions:true, qType:['mcq','tf'], minPlayers:1, maxPlayers:1, playersLabel:'اسم الصف/الفريق' }, startGame);
+}
+
+function startGame(cfg){
+  const bank = EGL.getBank(cfg.bankId);
+  const eligible = bank.questions.filter(q=>q.type==='mcq'||q.type==='tf');
+  if(eligible.length < 5){ EGL.toast('تحتاج هذه اللعبة أسئلة اختيار/صح-خطأ (٥ على الأقل)'); return; }
+  questions = EGL.shuffle(eligible).slice(0, 10);
+  plankIdx = 0;
+  strikes = 0;
+  const stage = document.getElementById('stage');
+  stage.innerHTML = `
+    <div class="strikes-row" id="strikes-row"></div>
+    <div class="canyon2" id="canyon"><div class="walker" id="walker">🚶</div></div>
+    <div id="q-wrap"></div>`;
+  document.getElementById('canyon').insertAdjacentHTML('afterbegin', questions.map((_,i)=>`<div class="plank2" id="plank2-${i}"></div>`).join(''));
+  updateStrikes();
+  renderQuestion();
+}
+
+function updateStrikes(){
+  document.getElementById('strikes-row').textContent = '💔'.repeat(strikes) + '🤍'.repeat(MAX_STRIKES-strikes);
+}
+function updateWalker(){
+  const pct = 100 - (plankIdx/questions.length)*94 - 3;
+  document.getElementById('walker').style.right = pct + '%';
+}
+
+function renderQuestion(){
+  if(plankIdx >= questions.length){ endGame(true); return; }
+  answered = false;
+  const q = questions[plankIdx];
+  const wrap = document.getElementById('q-wrap');
+  wrap.innerHTML = `
+    <div class="qcard">
+      <div class="qmeta"><span class="badge">اللوح ${plankIdx+1} / ${questions.length}</span></div>
+      <div class="qtext">${EGL.escapeHtml(q.text)}</div>
+      <div class="options" id="opts">${q.options.map((o,i)=>`<button class="option-btn" data-i="${i}">${EGL.escapeHtml(o)}</button>`).join('')}</div>
+    </div>`;
+  wrap.querySelectorAll('.option-btn').forEach(btn=>btn.addEventListener('click', ()=>tryStep(parseInt(btn.dataset.i), q)));
+}
+
+function tryStep(i, q){
+  if(answered) return;
+  answered = true;
+  document.querySelectorAll('.option-btn').forEach(b=>b.disabled=true);
+  if(i === q.correctIndex){
+    document.querySelectorAll('.option-btn')[i].classList.add('correct');
+    document.getElementById('plank2-'+plankIdx).classList.add('done');
+    plankIdx++;
+    updateWalker();
+    EGL.beep('correct'); EGL.confetti(20);
+    setTimeout(renderQuestion, 1100);
+  } else {
+    document.querySelectorAll('.option-btn')[i].classList.add('wrong');
+    document.querySelectorAll('.option-btn')[q.correctIndex].classList.add('correct');
+    strikes++;
+    updateStrikes();
+    EGL.beep('wrong');
+    if(strikes >= MAX_STRIKES){ setTimeout(()=>endGame(false), 1300); return; }
+    setTimeout(renderQuestion, 1300);
+  }
+}
+
+function endGame(won){
+  const stage = document.getElementById('stage');
+  if(won){
+    EGL.confetti(150); EGL.beep('win');
+    stage.innerHTML = `<div class="qcard">
+      <div style="font-size:3.5rem;">🌉</div><h2>عبر الصف الجسر معًا بنجاح!</h2>
+      <p>تعاون رائع من الجميع 👏</p>
+      <div style="display:flex; gap:10px; justify-content:center; margin-top:16px;">
+        <button class="btn btn-primary" onclick="location.reload()">🔁 جسر جديد</button>
+        <a class="btn btn-outline" href="../index.html">🏠 الألعاب الأخرى</a>
+      </div>
+    </div>`;
+  } else {
+    EGL.beep('wrong');
+    stage.innerHTML = `<div class="qcard">
+      <div style="font-size:3.5rem;">😅</div><h2>اهتز الجسر كثيرًا... حاولوا مرة أخرى!</h2>
+      <p>وصلتم إلى اللوح ${plankIdx+1} من ${questions.length}</p>
+      <div style="display:flex; gap:10px; justify-content:center; margin-top:16px;">
+        <button class="btn btn-primary" onclick="location.reload()">🔁 حاول مرة أخرى</button>
+        <a class="btn btn-outline" href="../index.html">🏠 الألعاب الأخرى</a>
+      </div>
+    </div>`;
+  }
+}
+
+init();
+</script>
+</body>
+</html>
