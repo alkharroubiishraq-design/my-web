@@ -1,0 +1,133 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>السفر عبر الزمن — ساحة الصف</title>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>⏳</text></svg>">
+<link rel="stylesheet" href="../css/style.css">
+<style>
+  .passage-box{ background: var(--bg-soft); border-radius: var(--radius-sm); padding:16px 20px; margin-bottom:16px; text-align:right; line-height:2; font-size:.98rem; color: var(--text-dim); max-height:200px; overflow-y:auto; border: 1px dashed rgba(255,255,255,.15); }
+</style>
+</head>
+<body>
+<nav class="topnav"><div class="container">
+  <a class="brand" href="../index.html"><span class="logo">🎲</span> ساحة الصف</a>
+  <div class="navlinks"><a href="../index.html">الرئيسية</a><a href="../index.html#games">الألعاب</a><a href="../questions.html">بنك الأسئلة</a></div>
+</div></nav>
+
+<div class="game-shell">
+  <div class="game-header container">
+    <h1>⏳ السفر عبر الزمن</h1>
+    <p>حوّلوا الفقرة حسب التعليمة (زمن آخر، مبني للمجهول...) بسرعة ودقة قبل نفاد الوقت!</p>
+  </div>
+  <div class="game-stage container" id="stage"></div>
+</div>
+
+<script src="../js/common.js"></script>
+<script>
+const ROUND_TIME = 60;
+let sb, players, activeI, pool, poolIdx, round, ROUNDS, timerInt, timeLeft;
+
+function init(){
+  const stage = document.getElementById('stage');
+  stage.innerHTML = `<div class="empty-state"><div class="emoji">⏳</div><h3>هيّئ اللعبة</h3><p>أنشئ سؤالًا مفتوحًا مع نص مرجعي (فقرة)، ونص السؤال هو تعليمة التحويل، مثل: "حوّل الفقرة من المضارع إلى الماضي".</p>
+    <button class="btn btn-primary" id="btn-setup">ابدأ الإعداد 🎮</button></div>`;
+  document.getElementById('btn-setup').addEventListener('click', openSetup);
+  openSetup();
+}
+function openSetup(){
+  EGL.openSetupModal({ title:'إعداد السفر عبر الزمن', allowIndividual:true, allowTeams:true, needQuestions:true, qType:['open'] }, startGame);
+}
+
+function startGame(cfg){
+  const bank = EGL.getBank(cfg.bankId);
+  const eligible = bank.questions.filter(q => q.type==='open' && q.context && q.context.trim().length > 30);
+  if(!eligible.length){ EGL.toast('تحتاج هذه اللعبة أسئلة مفتوحة مرتبطة بنص مرجعي (فقرة) وتعليمة تحويل واضحة'); return; }
+  pool = EGL.shuffle(eligible);
+  poolIdx = 0;
+  players = cfg.players;
+  activeI = 0;
+  round = 0;
+  ROUNDS = Math.min(players.length * 2, pool.length);
+  const stage = document.getElementById('stage');
+  stage.innerHTML = `<div id="sb-wrap" class="scoreboard"></div><div id="round-badge" class="badge" style="display:block; text-align:center; margin-bottom:6px;"></div><div id="game-area"></div>`;
+  sb = new EGL.Scoreboard(document.getElementById('sb-wrap'), players);
+  nextRound();
+}
+
+function nextRound(){
+  round++;
+  if(round > ROUNDS || poolIdx >= pool.length){ showResults(); return; }
+  document.getElementById('round-badge').textContent = `⏳ الجولة ${round} / ${ROUNDS}`;
+  renderRound();
+}
+
+function renderRound(){
+  clearInterval(timerInt);
+  const q = pool[poolIdx++];
+  timeLeft = ROUND_TIME;
+  const area = document.getElementById('game-area');
+  area.innerHTML = `
+    <div class="qcard">
+      <div class="qmeta"><span class="badge">دور: ${EGL.escapeHtml(players[activeI].name)}</span></div>
+      <p class="hint">🧭 التعليمة:</p>
+      <div class="qtext" style="font-size:1.1rem;">${EGL.escapeHtml(q.text)}</div>
+      <div class="passage-box">📖 ${EGL.escapeHtml(q.context)}</div>
+      <div class="timer-bar"><div id="timer-fill" style="width:100%"></div></div>
+      <textarea id="tt-input" placeholder="اكتب الفقرة بعد التحويل هنا..." style="min-height:120px;"></textarea>
+      <button class="btn btn-primary btn-block" id="btn-submit-tt">إرسال ✅</button>
+    </div>`;
+  document.getElementById('btn-submit-tt').addEventListener('click', ()=>lockAnswer(q));
+  document.getElementById('tt-input').focus();
+  timerInt = setInterval(()=>{
+    timeLeft--;
+    const fill = document.getElementById('timer-fill');
+    if(fill) fill.style.width = (timeLeft/ROUND_TIME*100)+'%';
+    if(timeLeft<=0) lockAnswer(q);
+  }, 1000);
+}
+
+function lockAnswer(q){
+  clearInterval(timerInt);
+  const text = document.getElementById('tt-input').value.trim() || '(بدون إجابة)';
+  const area = document.getElementById('game-area');
+  area.innerHTML = `
+    <div class="qcard">
+      <p class="hint">إجابة ${EGL.escapeHtml(players[activeI].name)}:</p>
+      <div class="qtext" style="font-size:1.05rem;">${EGL.escapeHtml(text)}</div>
+      <p>قيّم دقة التحويل:</p>
+      <div style="display:flex; gap:10px; justify-content:center; flex-wrap:wrap;">
+        <button class="btn btn-accent" data-pts="15">⭐ ممتاز (+15)</button>
+        <button class="btn btn-gold" data-pts="8">👍 جيد (+8)</button>
+        <button class="btn btn-outline" data-pts="3">✏️ يحتاج تحسين (+3)</button>
+      </div>
+    </div>`;
+  area.querySelectorAll('button[data-pts]').forEach(btn=>btn.addEventListener('click', ()=>{
+    const pts = parseInt(btn.dataset.pts);
+    sb.addScore(activeI, pts);
+    EGL.beep(pts>=15?'win':'correct'); EGL.confetti(pts>=15?60:25);
+    setTimeout(()=>{ activeI = (activeI+1) % players.length; nextRound(); }, 900);
+  }));
+}
+
+function showResults(){
+  EGL.confetti(100); EGL.beep('win');
+  const ranking = sb.ranking();
+  const stage = document.getElementById('stage');
+  stage.innerHTML = `<div class="qcard">
+    <div style="font-size:3rem;">🏆</div><h2>انتهت الرحلة الزمنية!</h2>
+    <div class="scoreboard" style="justify-content:center;">
+      ${ranking.map((p,r)=>`<div class="player-chip ${r===0?'active':''}"><div style="font-size:1.4rem;">${r===0?'🥇':r===1?'🥈':r===2?'🥉':p.emoji}</div><div class="pname">${EGL.escapeHtml(p.name)}</div><div class="pscore">${p.score}</div></div>`).join('')}
+    </div>
+    <div style="display:flex; gap:10px; justify-content:center; margin-top:16px;">
+      <button class="btn btn-primary" onclick="location.reload()">🔁 لعب مرة أخرى</button>
+      <a class="btn btn-outline" href="../index.html">🏠 الألعاب الأخرى</a>
+    </div>
+  </div>`;
+}
+
+init();
+</script>
+</body>
+</html>
