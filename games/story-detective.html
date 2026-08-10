@@ -1,0 +1,151 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>محقق النص — ساحة الصف</title>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>🔍</text></svg>">
+<link rel="stylesheet" href="../css/style.css">
+<style>
+  .passage-detective{ background: var(--bg-soft); border-radius: var(--radius-sm); padding:16px 20px; margin: 16px 0; text-align:right; line-height:2.4; font-size:1rem; border: 1px dashed rgba(255,255,255,.15); }
+  .sentence-span{ cursor:pointer; padding:3px 4px; border-radius:6px; transition:.15s; }
+  .sentence-span:hover{ background: rgba(124,92,255,.25); }
+  .sentence-span.correct{ background: rgba(43,224,138,.35); }
+  .sentence-span.wrong{ background: rgba(255,92,92,.35); }
+</style>
+</head>
+<body>
+<nav class="topnav"><div class="container">
+  <a class="brand" href="../index.html"><span class="logo">🎲</span> ساحة الصف</a>
+  <div class="navlinks"><a href="../index.html">الرئيسية</a><a href="../index.html#games">الألعاب</a><a href="../questions.html">بنك الأسئلة</a></div>
+</div></nav>
+
+<div class="game-shell">
+  <div class="game-header container">
+    <h1>🔍 محقق النص</h1>
+    <p>ابحثوا داخل النص عن الجملة التي تدل على الدليل المطلوب، وانقروها بأسرع وقت!</p>
+  </div>
+  <div class="game-stage container" id="stage"></div>
+</div>
+
+<script src="../js/common.js"></script>
+<script>
+let sb, players, activeI, pool, poolIdx, round, ROUNDS = 8, roundStart, resolved, timerInt, timeLeft;
+const ROUND_TIME = 20;
+
+function init(){
+  const stage = document.getElementById('stage');
+  stage.innerHTML = `<div class="empty-state"><div class="emoji">🔍</div><h3>هيّئ اللعبة</h3><p>تحتاج أسئلة مرتبطة بنص مرجعي (فقرة/قصة)، وأن تكون إجابة السؤال جملة موجودة حرفيًا داخل النص. أضِفها من صفحة بنك الأسئلة.</p>
+    <button class="btn btn-primary" id="btn-setup">ابدأ الإعداد 🎮</button></div>`;
+  document.getElementById('btn-setup').addEventListener('click', openSetup);
+  openSetup();
+}
+function openSetup(){
+  EGL.openSetupModal({ title:'إعداد محقق النص', allowIndividual:true, allowTeams:true, needQuestions:true }, startGame);
+}
+
+function startGame(cfg){
+  const bank = EGL.getBank(cfg.bankId);
+  const eligible = bank.questions.filter(q => q.context && q.answerText && q.context.includes(q.answerText.trim()));
+  if(!eligible.length){ EGL.toast('لا توجد أسئلة مرتبطة بنص يحتوي إجابتها حرفيًا. أضِف نصًا مرجعيًا للأسئلة من صفحة بنك الأسئلة أولًا.'); return; }
+  pool = EGL.shuffle(eligible);
+  poolIdx = 0;
+  players = cfg.players;
+  activeI = 0;
+  round = 0;
+  ROUNDS = Math.min(8, pool.length);
+  const stage = document.getElementById('stage');
+  stage.innerHTML = `<div id="sb-wrap" class="scoreboard"></div><div id="round-badge" class="badge" style="display:block; text-align:center; margin-bottom:6px;"></div><div id="game-area"></div>`;
+  sb = new EGL.Scoreboard(document.getElementById('sb-wrap'), players);
+  nextRound();
+}
+
+function nextRound(){
+  round++;
+  if(round > ROUNDS || poolIdx >= pool.length){ showResults(); return; }
+  document.getElementById('round-badge').textContent = `🔍 القضية ${round} / ${ROUNDS}`;
+  renderRound();
+}
+
+function renderRound(){
+  clearInterval(timerInt);
+  resolved = false;
+  const q = pool[poolIdx++];
+  const sentences = EGL.splitSentences(q.context);
+  const targetIdx = sentences.findIndex(s => s.includes(q.answerText.trim()));
+  const area = document.getElementById('game-area');
+  area.innerHTML = `
+    <div class="qcard">
+      <div class="qmeta"><span class="badge">دور: ${EGL.escapeHtml(players[activeI].name)}</span></div>
+      <p class="hint">🕵️ الدليل المطلوب:</p>
+      <div class="qtext" style="font-size:1.1rem;">${EGL.escapeHtml(q.text)}</div>
+      <div class="timer-bar"><div id="timer-fill" style="width:100%"></div></div>
+      <div class="passage-detective" id="passage"></div>
+    </div>`;
+  const passage = document.getElementById('passage');
+  passage.innerHTML = sentences.map((s,i)=>`<span class="sentence-span" data-i="${i}">${EGL.escapeHtml(s)} </span>`).join('');
+  passage.querySelectorAll('.sentence-span').forEach(sp=>sp.addEventListener('click', ()=> pick(parseInt(sp.dataset.i), targetIdx)));
+
+  roundStart = performance.now();
+  timeLeft = ROUND_TIME;
+  timerInt = setInterval(()=>{
+    timeLeft--;
+    const fill = document.getElementById('timer-fill');
+    if(fill) fill.style.width = (timeLeft/ROUND_TIME*100)+'%';
+    if(timeLeft<=0) timeUp(targetIdx);
+  }, 1000);
+}
+
+function pick(i, targetIdx){
+  if(resolved) return;
+  resolved = true;
+  clearInterval(timerInt);
+  document.querySelectorAll('.sentence-span').forEach(sp=>{
+    sp.style.pointerEvents = 'none';
+    if(parseInt(sp.dataset.i) === targetIdx) sp.classList.add('correct');
+  });
+  if(i === targetIdx){
+    const elapsed = (performance.now() - roundStart)/1000;
+    const bonus = Math.max(0, Math.round(ROUND_TIME - elapsed));
+    sb.addScore(activeI, 10 + bonus);
+    EGL.beep('correct'); EGL.confetti(30);
+  } else {
+    document.querySelector(`.sentence-span[data-i="${i}"]`).classList.add('wrong');
+    EGL.beep('wrong');
+  }
+  setTimeout(()=>{ activeI = (activeI+1) % players.length; nextRound(); }, 1700);
+}
+
+function timeUp(targetIdx){
+  if(resolved) return;
+  resolved = true;
+  clearInterval(timerInt);
+  document.querySelectorAll('.sentence-span').forEach(sp=>{
+    sp.style.pointerEvents = 'none';
+    if(parseInt(sp.dataset.i) === targetIdx) sp.classList.add('correct');
+  });
+  EGL.beep('wrong');
+  EGL.toast('⏱ انتهى الوقت!');
+  setTimeout(()=>{ activeI = (activeI+1) % players.length; nextRound(); }, 1500);
+}
+
+function showResults(){
+  EGL.confetti(100); EGL.beep('win');
+  const ranking = sb.ranking();
+  const stage = document.getElementById('stage');
+  stage.innerHTML = `<div class="qcard">
+    <div style="font-size:3rem;">🏆</div><h2>أُغلقت القضايا كلها!</h2>
+    <div class="scoreboard" style="justify-content:center;">
+      ${ranking.map((p,r)=>`<div class="player-chip ${r===0?'active':''}"><div style="font-size:1.4rem;">${r===0?'🥇':r===1?'🥈':r===2?'🥉':p.emoji}</div><div class="pname">${EGL.escapeHtml(p.name)}</div><div class="pscore">${p.score}</div></div>`).join('')}
+    </div>
+    <div style="display:flex; gap:10px; justify-content:center; margin-top:16px;">
+      <button class="btn btn-primary" onclick="location.reload()">🔁 لعب مرة أخرى</button>
+      <a class="btn btn-outline" href="../index.html">🏠 الألعاب الأخرى</a>
+    </div>
+  </div>`;
+}
+
+init();
+</script>
+</body>
+</html>

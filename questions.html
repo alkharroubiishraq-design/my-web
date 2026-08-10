@@ -155,9 +155,12 @@ function renderManualTab(el, bank){
         <div class="chip selected" data-v="mcq">اختيار من متعدد</div>
         <div class="chip" data-v="tf">صح / خطأ</div>
         <div class="chip" data-v="open">سؤال مفتوح / نقاشي</div>
+        <div class="chip" data-v="sequence">ترتيب تسلسلي</div>
       </div>
-      <label>نص السؤال</label>
+      <label>نص السؤال / التعليمة</label>
       <textarea id="m-text" placeholder="اكتب نص السؤال هنا..."></textarea>
+      <label>نص/فقرة مرجعية (اختياري — لألعاب استيعاب القراءة، تُعرض مع السؤال)</label>
+      <textarea id="m-context" placeholder="الصق هنا فقرة أو قصة قصيرة يرتبط بها السؤال..."></textarea>
       <div id="m-options"></div>
       <div class="field-row">
         <div>
@@ -192,6 +195,19 @@ function renderManualTab(el, bank){
         ow.querySelectorAll('#m-tf-answer .chip').forEach(x=>x.classList.remove('selected'));
         c.classList.add('selected');
       }));
+    } else if(mType==='sequence'){
+      ow.innerHTML = `<label>الخطوات بالترتيب الصحيح (٢ على الأقل)</label><div id="m-seq-steps"></div>
+        <button type="button" class="btn btn-outline btn-sm" id="m-seq-add">+ إضافة خطوة</button>`;
+      const stepsWrap = ow.querySelector('#m-seq-steps');
+      function addStepRow(){
+        const row = document.createElement('div');
+        row.style.cssText = 'display:flex; gap:8px; align-items:center; margin-bottom:8px;';
+        row.innerHTML = `<input type="text" class="m-seq-step" placeholder="خطوة ${stepsWrap.children.length+1}" style="margin-bottom:0;"><button type="button" class="btn btn-outline btn-sm m-seq-remove">✕</button>`;
+        row.querySelector('.m-seq-remove').addEventListener('click', ()=> row.remove());
+        stepsWrap.appendChild(row);
+      }
+      addStepRow(); addStepRow(); addStepRow();
+      ow.querySelector('#m-seq-add').addEventListener('click', addStepRow);
     } else {
       ow.innerHTML = `<label>إجابة نموذجية (اختياري)</label><input type="text" id="m-open-answer" placeholder="مثال: إجابة مقترحة أو اتركها فارغة">`;
     }
@@ -209,22 +225,28 @@ function renderManualTab(el, bank){
     if(!text){ EGL.toast('اكتب نص السؤال أولًا'); return; }
     const difficulty = el.querySelector('#m-diff').value;
     const category = el.querySelector('#m-cat').value.trim() || 'عام';
+    const context = el.querySelector('#m-context').value.trim();
     let q;
     if(mType==='mcq'){
       const opts = Array.from(el.querySelectorAll('.m-opt')).map(i=>i.value.trim());
       if(opts.some(o=>!o)){ EGL.toast('املأ جميع الخيارات الأربعة'); return; }
       const correct = parseInt(el.querySelector('input[name=m-correct]:checked').value);
-      q = EGL.mkMcq(text, opts, correct, difficulty, category);
+      q = EGL.mkMcq(text, opts, correct, difficulty, category, context);
     } else if(mType==='tf'){
       const val = el.querySelector('#m-tf-answer .selected').dataset.v === '1';
-      q = EGL.mkTf(text, val, difficulty, category);
+      q = EGL.mkTf(text, val, difficulty, category, context);
+    } else if(mType==='sequence'){
+      const steps = Array.from(el.querySelectorAll('.m-seq-step')).map(i=>i.value.trim()).filter(Boolean);
+      if(steps.length < 2){ EGL.toast('أضف خطوتين على الأقل بالترتيب الصحيح'); return; }
+      q = EGL.mkSequence(text, steps, difficulty, category, context);
     } else {
-      q = EGL.mkOpen(text, el.querySelector('#m-open-answer').value.trim());
+      q = EGL.mkOpen(text, el.querySelector('#m-open-answer').value.trim(), context);
       q.difficulty = difficulty; q.category = category;
     }
     EGL.addQuestions(bank.id, [q]);
     EGL.toast('تمت إضافة السؤال ✅');
     el.querySelector('#m-text').value='';
+    el.querySelector('#m-context').value='';
     renderAll();
   });
 }
@@ -278,6 +300,10 @@ function renderAiTab(el, bank){
         <div class="chip selected" data-v="tf">صح / خطأ</div>
         <div class="chip" data-v="open">أسئلة مفتوحة</div>
       </div>
+      <label style="display:flex; align-items:center; gap:8px; cursor:pointer;">
+        <input type="checkbox" id="ai-attach-context" style="width:auto; margin:0;">
+        🔗 اربط الأسئلة بنص المادة (لألعاب استيعاب القراءة مثل "حقيقة أم خيال" و"الفقرة المفقودة")
+      </label>
 
       <button class="btn btn-primary btn-block" id="btn-generate">🤖 توليد الأسئلة الآن</button>
       <div id="ai-preview" style="margin-top:18px;"></div>
@@ -314,6 +340,7 @@ function renderAiTab(el, bank){
     const count = parseInt(el.querySelector('#ai-count').value) || 8;
     const diff = el.querySelector('#ai-diff').value;
     const types = Array.from(el.querySelectorAll('#ai-types .chip.selected')).map(c=>c.dataset.v);
+    const attachContext = el.querySelector('#ai-attach-context').checked;
     if(!key){ EGL.toast('أدخل مفتاح API أولًا'); return; }
     if(!source){ EGL.toast('الصق نص المادة التعليمية أو ارفع ملفًا'); return; }
     if(!types.length){ EGL.toast('اختر نوعًا واحدًا على الأقل من الأسئلة'); return; }
@@ -323,6 +350,10 @@ function renderAiTab(el, bank){
     btn.disabled = true; btn.textContent = '⏳ جاري التوليد...';
     try{
       const qs = await generateQuestionsAI({key, model, source, count, diff, types});
+      if(attachContext){
+        const ctx = source.slice(0, 2500);
+        qs.forEach(q => q.context = ctx);
+      }
       aiGeneratedPreview = qs;
       renderAiPreview(el.querySelector('#ai-preview'), bank);
     }catch(err){

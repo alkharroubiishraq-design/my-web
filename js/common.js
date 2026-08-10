@@ -26,7 +26,7 @@ const EGL = (() => {
   const pointsFor = (diff) => ({ easy: 10, medium: 20, hard: 30 }[diff] || 10);
 
   const diffLabel = (d) => ({ easy: 'سهل', medium: 'متوسط', hard: 'صعب' }[d] || d);
-  const typeLabel = (t) => ({ mcq: 'اختيار من متعدد', tf: 'صح / خطأ', open: 'سؤال مفتوح' }[t] || t);
+  const typeLabel = (t) => ({ mcq: 'اختيار من متعدد', tf: 'صح / خطأ', open: 'سؤال مفتوح', sequence: 'ترتيب تسلسلي' }[t] || t);
 
   /* ---------------- Storage ---------------- */
   function getBanks() {
@@ -127,17 +127,34 @@ const EGL = (() => {
       ]
     };
 
-    saveBanks([trivia, icebreakers]);
+    const storyText = 'في قديم الزمان، عاشت قرية صغيرة على ضفاف نهر واسع. كان أهل القرية يعتمدون على الزراعة وصيد السمك لكسب رزقهم. في يوم من الأيام، لاحظ الصياد الشاب سالم أن منسوب المياه في النهر بدأ ينخفض بشكل غريب. أخبر سالم شيخ القرية بما رآه، فجمع الشيخ أهل القرية وقرروا معًا بناء سد صغير لحماية القرية من الجفاف القادم. عمل الجميع يدًا بيد لمدة أسبوعين حتى اكتمل السد. وعندما جاء موسم الجفاف، بقيت القرية آمنة بفضل تعاون أهلها.';
+    const reading = {
+      id: gk(), name: 'قصص واستيعاب القراءة (تجريبي)', subject: 'لغة عربية', ageGroup: 'الكل',
+      icon: '📖', createdAt: Date.now(), questions: [
+        mkTf('كانت القرية تعتمد على الزراعة وصيد السمك.', true, 'easy', 'استيعاب', storyText),
+        mkTf('سالم هو شيخ القرية.', false, 'easy', 'استيعاب', storyText),
+        mkTf('استغرق بناء السد شهرًا كاملًا.', false, 'medium', 'استيعاب', storyText),
+        mkTf('بقيت القرية آمنة من الجفاف بفضل تعاون أهلها.', true, 'easy', 'استيعاب', storyText),
+        mkMcq('ماذا لاحظ سالم في النهر؟', ['ارتفاع منسوب المياه', 'انخفاض منسوب المياه', 'تلوث المياه', 'جفاف النهر بالكامل'], 1, 'medium', 'استيعاب', storyText),
+        mkMcq('ما الذي يكمّل الفراغ التالي بشكل منطقي: "أخبر سالم شيخ القرية بما رآه، ___"', ['فتجاهله الشيخ تمامًا', 'فجمع الشيخ أهل القرية وقرروا معًا بناء سد', 'فغادر سالم القرية فورًا', 'فبدأ الشيخ بالبكاء'], 1, 'medium', 'الفقرة المفقودة', storyText),
+        mkSequence('رتّب أحداث القصة بالترتيب الصحيح', ['أهل القرية يعتمدون على الزراعة وصيد السمك', 'سالم يلاحظ انخفاض منسوب المياه', 'الشيخ يجمع أهل القرية', 'القرية تبني سدًا صغيرًا', 'القرية تبقى آمنة في موسم الجفاف'], 'medium', 'ترتيب', storyText),
+      ]
+    };
+
+    saveBanks([trivia, icebreakers, reading]);
   }
 
-  function mkMcq(text, options, correctIndex, difficulty, category) {
-    return { id: uuid(), type: 'mcq', text, options, correctIndex, answerText: options[correctIndex], difficulty, category: category || 'عام', points: pointsFor(difficulty) };
+  function mkMcq(text, options, correctIndex, difficulty, category, context) {
+    return { id: uuid(), type: 'mcq', text, options, correctIndex, answerText: options[correctIndex], difficulty, category: category || 'عام', points: pointsFor(difficulty), context: context || '' };
   }
-  function mkTf(text, correct, difficulty, category) {
-    return { id: uuid(), type: 'tf', text, options: ['صح', 'خطأ'], correctIndex: correct ? 0 : 1, answerText: correct ? 'صح' : 'خطأ', difficulty, category: category || 'عام', points: pointsFor(difficulty) };
+  function mkTf(text, correct, difficulty, category, context) {
+    return { id: uuid(), type: 'tf', text, options: ['صح', 'خطأ'], correctIndex: correct ? 0 : 1, answerText: correct ? 'صح' : 'خطأ', difficulty, category: category || 'عام', points: pointsFor(difficulty), context: context || '' };
   }
-  function mkOpen(text, answerText) {
-    return { id: uuid(), type: 'open', text, options: [], correctIndex: -1, answerText: answerText || '', difficulty: 'easy', category: 'كسر جمود', points: 0 };
+  function mkOpen(text, answerText, context) {
+    return { id: uuid(), type: 'open', text, options: [], correctIndex: -1, answerText: answerText || '', difficulty: 'easy', category: 'كسر جمود', points: 0, context: context || '' };
+  }
+  function mkSequence(text, steps, difficulty, category, context) {
+    return { id: uuid(), type: 'sequence', text, options: steps, correctIndex: -1, answerText: steps.join(' ← '), difficulty: difficulty || 'medium', category: category || 'عام', points: pointsFor(difficulty || 'medium'), context: context || '' };
   }
 
   /* ---------------- Toast ---------------- */
@@ -235,6 +252,10 @@ const EGL = (() => {
 
   function escapeHtml(s) {
     return String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+  }
+
+  function splitSentences(text) {
+    return String(text || '').split(/(?<=[.!؟?؛])\s+/).map(s => s.trim()).filter(Boolean);
   }
 
   /* ---------------- Setup Modal ---------------- */
@@ -414,9 +435,9 @@ const EGL = (() => {
     uuid, shuffle, pick, qs, pointsFor, diffLabel, typeLabel,
     getBanks, saveBanks, getBank, addBank, updateBank, deleteBank, addQuestions, deleteQuestion,
     getApiKey, setApiKey, getModel, setModel,
-    seedIfEmpty, mkMcq, mkTf, mkOpen,
+    seedIfEmpty, mkMcq, mkTf, mkOpen, mkSequence,
     toast, beep, confetti, Scoreboard, escapeHtml, openSetupModal,
-    genMathProblem, genMathStatement, scrambleWord, spellingDecoys
+    genMathProblem, genMathStatement, scrambleWord, spellingDecoys, splitSentences
   };
 })();
 

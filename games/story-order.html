@@ -1,0 +1,135 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>مهندس القصة — ساحة الصف</title>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>🧵</text></svg>">
+<link rel="stylesheet" href="../css/style.css">
+<style>
+  .step-list{ display:flex; flex-direction:column; gap:10px; margin: 16px 0; }
+  .step-tile{ background: var(--surface-2); border-radius:12px; padding:14px 18px; cursor:pointer; border:3px solid transparent; transition:.15s; text-align:right; position:relative; }
+  .step-tile:hover{ border-color: var(--primary); }
+  .step-tile.locked{ background: rgba(43,224,138,.2); border-color: var(--success); cursor:default; }
+  .step-tile.wrong-flash{ background: rgba(255,92,92,.35); border-color: var(--danger); }
+  .step-tile .rank-num{ display:inline-flex; width:26px; height:26px; border-radius:50%; background: var(--accent-2); color:#332400; align-items:center; justify-content:center; font-weight:900; font-size:.85rem; margin-left:10px; }
+</style>
+</head>
+<body>
+<nav class="topnav"><div class="container">
+  <a class="brand" href="../index.html"><span class="logo">🎲</span> ساحة الصف</a>
+  <div class="navlinks"><a href="../index.html">الرئيسية</a><a href="../index.html#games">الألعاب</a><a href="../questions.html">بنك الأسئلة</a></div>
+</div></nav>
+
+<div class="game-shell">
+  <div class="game-header container">
+    <h1>🧵 مهندس القصة</h1>
+    <p>رتّبوا الأحداث أو الخطوات بالترتيب الصحيح بأسرع وقت وأقل عدد من الأخطاء!</p>
+  </div>
+  <div class="game-stage container" id="stage"></div>
+</div>
+
+<script src="../js/common.js"></script>
+<script>
+let sb, players, activeI, pool, poolIdx, round, ROUNDS, expectedIdx, mistakes, roundStart;
+
+function init(){
+  const stage = document.getElementById('stage');
+  stage.innerHTML = `<div class="empty-state"><div class="emoji">🧵</div><h3>هيّئ اللعبة</h3><p>تحتاج بنك أسئلة من نوع "ترتيب تسلسلي" — أضِفها من صفحة بنك الأسئلة (نوع السؤال).</p>
+    <button class="btn btn-primary" id="btn-setup">ابدأ الإعداد 🎮</button></div>`;
+  document.getElementById('btn-setup').addEventListener('click', openSetup);
+  openSetup();
+}
+function openSetup(){
+  EGL.openSetupModal({ title:'إعداد مهندس القصة', allowIndividual:true, allowTeams:true, needQuestions:true, qType:['sequence'] }, startGame);
+}
+
+function startGame(cfg){
+  const bank = EGL.getBank(cfg.bankId);
+  pool = EGL.shuffle(bank.questions.filter(q=>q.type==='sequence' && q.options.length>=2));
+  if(!pool.length){ EGL.toast('لا توجد أسئلة ترتيب تسلسلي في هذا البنك. أضِف بعضها من صفحة بنك الأسئلة.'); return; }
+  poolIdx = 0;
+  players = cfg.players;
+  activeI = 0;
+  round = 0;
+  ROUNDS = Math.min(8, pool.length);
+  const stage = document.getElementById('stage');
+  stage.innerHTML = `<div id="sb-wrap" class="scoreboard"></div><div id="round-badge" class="badge" style="display:block; text-align:center; margin-bottom:6px;"></div><div id="game-area"></div>`;
+  sb = new EGL.Scoreboard(document.getElementById('sb-wrap'), players);
+  nextRound();
+}
+
+function nextRound(){
+  round++;
+  if(round > ROUNDS || poolIdx >= pool.length){ showResults(); return; }
+  document.getElementById('round-badge').textContent = `🧵 الجولة ${round} / ${ROUNDS}`;
+  renderRound();
+}
+
+function renderRound(){
+  const q = pool[poolIdx++];
+  window._curQ = q;
+  expectedIdx = 0;
+  mistakes = 0;
+  roundStart = performance.now();
+  const shuffled = EGL.shuffle(q.options);
+  const area = document.getElementById('game-area');
+  area.innerHTML = `
+    <div class="qcard">
+      <div class="qmeta"><span class="badge">دور: ${EGL.escapeHtml(players[activeI].name)}</span></div>
+      <div class="qtext" style="font-size:1.1rem;">${EGL.escapeHtml(q.text)}</div>
+      ${q.context ? `<p class="hint">📖 ${EGL.escapeHtml(q.context)}</p>` : ''}
+      <div class="step-list" id="step-list"></div>
+    </div>`;
+  const list = document.getElementById('step-list');
+  list.innerHTML = shuffled.map(s=>`<div class="step-tile" data-s="${EGL.escapeHtml(s)}">${EGL.escapeHtml(s)}</div>`).join('');
+  list.querySelectorAll('.step-tile').forEach(tile=>tile.addEventListener('click', ()=>tapStep(tile, q)));
+}
+
+function tapStep(tile, q){
+  if(tile.classList.contains('locked')) return;
+  const val = tile.dataset.s;
+  if(val === q.options[expectedIdx]){
+    tile.classList.add('locked');
+    tile.innerHTML = `<span class="rank-num">${expectedIdx+1}</span>${tile.innerHTML}`;
+    EGL.beep('tick');
+    expectedIdx++;
+    if(expectedIdx === q.options.length) roundComplete();
+  } else {
+    mistakes++;
+    tile.classList.add('wrong-flash');
+    EGL.beep('wrong');
+    setTimeout(()=> tile.classList.remove('wrong-flash'), 400);
+  }
+}
+
+function roundComplete(){
+  const elapsed = (performance.now() - roundStart)/1000;
+  const speedBonus = Math.max(0, Math.round(12 - elapsed));
+  const points = Math.max(5, 18 - mistakes*3) + speedBonus;
+  sb.addScore(activeI, points);
+  EGL.beep('correct'); EGL.confetti(45);
+  EGL.toast(`✅ ترتيب صحيح! +${points} نقطة`);
+  setTimeout(()=>{ activeI = (activeI+1) % players.length; nextRound(); }, 1700);
+}
+
+function showResults(){
+  EGL.confetti(100); EGL.beep('win');
+  const ranking = sb.ranking();
+  const stage = document.getElementById('stage');
+  stage.innerHTML = `<div class="qcard">
+    <div style="font-size:3rem;">🏆</div><h2>انتهت الجولات!</h2>
+    <div class="scoreboard" style="justify-content:center;">
+      ${ranking.map((p,r)=>`<div class="player-chip ${r===0?'active':''}"><div style="font-size:1.4rem;">${r===0?'🥇':r===1?'🥈':r===2?'🥉':p.emoji}</div><div class="pname">${EGL.escapeHtml(p.name)}</div><div class="pscore">${p.score}</div></div>`).join('')}
+    </div>
+    <div style="display:flex; gap:10px; justify-content:center; margin-top:16px;">
+      <button class="btn btn-primary" onclick="location.reload()">🔁 لعب مرة أخرى</button>
+      <a class="btn btn-outline" href="../index.html">🏠 الألعاب الأخرى</a>
+    </div>
+  </div>`;
+}
+
+init();
+</script>
+</body>
+</html>
