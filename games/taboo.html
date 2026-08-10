@@ -1,0 +1,123 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>الكلمة المحظورة — ساحة الصف</title>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>🚫</text></svg>">
+<link rel="stylesheet" href="../css/style.css">
+<style>
+  .taboo-word{ font-size:2.4rem; font-weight:900; text-align:center; margin: 10px 0 18px; color: var(--accent-2); }
+  .taboo-list{ display:flex; flex-direction:column; gap:10px; max-width:340px; margin: 0 auto 20px; }
+  .taboo-list div{ background: rgba(255,92,92,.15); border:2px solid var(--danger); border-radius:12px; padding:10px; text-align:center; font-weight:800; }
+</style>
+</head>
+<body>
+<nav class="topnav"><div class="container">
+  <a class="brand" href="../index.html"><span class="logo">🎲</span> ساحة الصف</a>
+  <div class="navlinks"><a href="../index.html">الرئيسية</a><a href="../index.html#games">الألعاب</a><a href="../questions.html">بنك الأسئلة</a></div>
+</div></nav>
+
+<div class="game-shell">
+  <div class="game-header container">
+    <h1>🚫 الكلمة المحظورة</h1>
+    <p>اشرح الكلمة لفريقك دون استخدام أي من الكلمات الممنوعة الثلاث!</p>
+  </div>
+  <div class="game-stage container" id="stage"></div>
+</div>
+
+<script src="../js/common.js"></script>
+<script>
+const TURN_TIME = 60;
+let sb, players, turnI, pool, poolIdx, timeLeft, timerInt, roundScore;
+
+function init(){
+  const stage = document.getElementById('stage');
+  stage.innerHTML = `<div class="empty-state"><div class="emoji">🚫</div><h3>هيّئ اللعبة</h3><p>تحتاج بنك أسئلة اختيار من متعدد (تُستخدم الخيارات الخاطئة ككلمات محظورة).</p>
+    <button class="btn btn-primary" id="btn-setup">ابدأ الإعداد 🎮</button></div>`;
+  document.getElementById('btn-setup').addEventListener('click', openSetup);
+  openSetup();
+}
+function openSetup(){
+  EGL.openSetupModal({ title:'إعداد الكلمة المحظورة', allowIndividual:true, allowTeams:true, needQuestions:true, qType:['mcq'] }, startGame);
+}
+
+function startGame(cfg){
+  const bank = EGL.getBank(cfg.bankId);
+  const eligible = bank.questions.filter(q => q.type==='mcq' && q.options.length >= 3);
+  if(eligible.length < 3){ EGL.toast('تحتاج هذه اللعبة أسئلة اختيار من متعدد (٣ على الأقل)'); return; }
+  window._pool0 = eligible;
+  players = cfg.players;
+  turnI = 0;
+  const stage = document.getElementById('stage');
+  stage.innerHTML = `<div id="sb-wrap" class="scoreboard"></div><div id="turn-info" style="text-align:center; font-weight:800; margin-bottom:10px;"></div>
+    <div class="timer-bar"><div id="timer-fill" style="width:100%"></div></div><div id="card-area"></div>`;
+  sb = new EGL.Scoreboard(document.getElementById('sb-wrap'), players);
+  startTurn();
+}
+
+function startTurn(){
+  document.getElementById('turn-info').textContent = `🎙 دور الشرح: ${players[turnI].name} — اطلب من الفريق الآخر عدم النظر للشاشة!`;
+  pool = EGL.shuffle(window._pool0);
+  poolIdx = 0;
+  timeLeft = TURN_TIME;
+  roundScore = 0;
+  updateTimerBar();
+  renderCard();
+  timerInt = setInterval(()=>{
+    timeLeft--; updateTimerBar();
+    if(timeLeft<=0) endTurn();
+  }, 1000);
+}
+function updateTimerBar(){ document.getElementById('timer-fill').style.width = (timeLeft/TURN_TIME*100)+'%'; }
+
+function renderCard(){
+  if(poolIdx >= pool.length) pool = EGL.shuffle(pool), poolIdx = 0;
+  const q = pool[poolIdx++];
+  window._curQ = q;
+  const taboo = q.options.filter((o,i)=> i !== q.correctIndex).slice(0,3);
+  const area = document.getElementById('card-area');
+  area.innerHTML = `
+    <div class="qcard">
+      <p class="hint">الكلمة المطلوبة:</p>
+      <div class="taboo-word">${EGL.escapeHtml(q.answerText)}</div>
+      <p class="hint">🚫 ممنوع استخدام:</p>
+      <div class="taboo-list">${taboo.map(t=>`<div>${EGL.escapeHtml(t)}</div>`).join('')}</div>
+      <div style="display:flex; gap:10px; justify-content:center;">
+        <button class="btn btn-accent" id="btn-correct">✅ خمّنوا صح (+10)</button>
+        <button class="btn btn-outline" id="btn-skip">⏭ تخطّي</button>
+      </div>
+    </div>`;
+  document.getElementById('btn-correct').addEventListener('click', ()=>{ roundScore += 10; EGL.beep('correct'); EGL.confetti(15); renderCard(); });
+  document.getElementById('btn-skip').addEventListener('click', ()=>{ EGL.beep('tick'); renderCard(); });
+}
+
+function endTurn(){
+  clearInterval(timerInt);
+  sb.addScore(turnI, roundScore);
+  EGL.toast(`⏱ انتهى الوقت! +${roundScore} نقطة لـ ${players[turnI].name}`);
+  turnI++;
+  if(turnI >= players.length){ showResults(); return; }
+  setTimeout(startTurn, 1200);
+}
+
+function showResults(){
+  EGL.confetti(100); EGL.beep('win');
+  const ranking = sb.ranking();
+  const stage = document.getElementById('stage');
+  stage.innerHTML = `<div class="qcard">
+    <div style="font-size:3rem;">🏆</div><h2>انتهت الجولة!</h2>
+    <div class="scoreboard" style="justify-content:center;">
+      ${ranking.map((p,r)=>`<div class="player-chip ${r===0?'active':''}"><div style="font-size:1.4rem;">${r===0?'🥇':r===1?'🥈':r===2?'🥉':p.emoji}</div><div class="pname">${EGL.escapeHtml(p.name)}</div><div class="pscore">${p.score}</div></div>`).join('')}
+    </div>
+    <div style="display:flex; gap:10px; justify-content:center; margin-top:16px;">
+      <button class="btn btn-primary" onclick="location.reload()">🔁 لعب مرة أخرى</button>
+      <a class="btn btn-outline" href="../index.html">🏠 الألعاب الأخرى</a>
+    </div>
+  </div>`;
+}
+
+init();
+</script>
+</body>
+</html>

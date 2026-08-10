@@ -1,0 +1,130 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>كازينو القواعد — ساحة الصف</title>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>🎰</text></svg>">
+<link rel="stylesheet" href="../css/style.css">
+<style>
+  .chip-input{ font-size:1.6rem; font-weight:900; text-align:center; max-width:180px; margin: 10px auto; }
+  .bet-quick{ display:flex; gap:8px; justify-content:center; margin-bottom:16px; }
+  .bet-quick button{ padding:8px 16px; border-radius:999px; border:none; background: var(--surface-2); color:#fff; font-weight:800; cursor:pointer; }
+</style>
+</head>
+<body>
+<nav class="topnav"><div class="container">
+  <a class="brand" href="../index.html"><span class="logo">🎲</span> ساحة الصف</a>
+  <div class="navlinks"><a href="../index.html">الرئيسية</a><a href="../index.html#games">الألعاب</a><a href="../questions.html">بنك الأسئلة</a></div>
+</div></nav>
+
+<div class="game-shell">
+  <div class="game-header container">
+    <h1>🎰 كازينو القواعد</h1>
+    <p>راهن على ثقتك بإجابتك — إجابة صحيحة تُضاعف رصيدك، والخاطئة تخسّرك رهانك!</p>
+  </div>
+  <div class="game-stage container" id="stage"></div>
+</div>
+
+<script src="../js/common.js"></script>
+<script>
+const START_BALANCE = 100, TURNS_PER_PLAYER = 3;
+let sb, players, pool, poolIdx, turnI, turnsLeft, curBet;
+
+function init(){
+  const stage = document.getElementById('stage');
+  stage.innerHTML = `<div class="empty-state"><div class="emoji">🎰</div><h3>هيّئ اللعبة</h3><p>كل لاعب/فريق يبدأ برصيد ${START_BALANCE} نقطة.</p>
+    <button class="btn btn-primary" id="btn-setup">ابدأ الإعداد 🎮</button></div>`;
+  document.getElementById('btn-setup').addEventListener('click', openSetup);
+  openSetup();
+}
+function openSetup(){
+  EGL.openSetupModal({ title:'إعداد كازينو القواعد', allowIndividual:true, allowTeams:true, needQuestions:true, qType:['mcq','tf'] }, startGame);
+}
+
+function startGame(cfg){
+  const bank = EGL.getBank(cfg.bankId);
+  pool = EGL.shuffle(bank.questions.filter(q=>q.type==='mcq'||q.type==='tf'));
+  if(!pool.length){ EGL.toast('لا توجد أسئلة اختيار/صح-خطأ في هذا البنك'); return; }
+  poolIdx = 0;
+  players = cfg.players;
+  turnI = 0;
+  turnsLeft = players.length * TURNS_PER_PLAYER;
+  const stage = document.getElementById('stage');
+  stage.innerHTML = `<div id="sb-wrap" class="scoreboard"></div><div id="game-area"></div>`;
+  sb = new EGL.Scoreboard(document.getElementById('sb-wrap'), players);
+  sb.players.forEach(p => p.score = START_BALANCE);
+  sb.render();
+  nextTurn();
+}
+
+function nextTurn(){
+  if(turnsLeft <= 0){ showResults(); return; }
+  turnsLeft--;
+  sb.setActive(turnI);
+  if(poolIdx >= pool.length){ pool = EGL.shuffle(pool); poolIdx = 0; }
+  const q = pool[poolIdx++];
+  window._curQ = q;
+  const balance = sb.players[turnI].score;
+  const area = document.getElementById('game-area');
+  area.innerHTML = `
+    <div class="qcard">
+      <p class="hint">دور: ${EGL.escapeHtml(players[turnI].name)} — الرصيد: ${balance}</p>
+      <div class="qtext">${EGL.escapeHtml(q.text)}</div>
+      <p>ضع رهانك أولًا:</p>
+      <input type="number" class="chip-input" id="bet-input" min="0" max="${balance}" value="${Math.min(20, balance)}">
+      <div class="bet-quick">
+        <button data-p="0.25">¼ الرصيد</button>
+        <button data-p="0.5">½ الرصيد</button>
+        <button data-p="1">الكل (All-in)</button>
+      </div>
+      <button class="btn btn-gold btn-block" id="btn-lock-bet">🔒 تأكيد الرهان</button>
+    </div>`;
+  area.querySelectorAll('.bet-quick button').forEach(b=>b.addEventListener('click', ()=>{
+    document.getElementById('bet-input').value = Math.floor(balance * parseFloat(b.dataset.p));
+  }));
+  document.getElementById('btn-lock-bet').addEventListener('click', ()=>{
+    curBet = Math.max(0, Math.min(balance, parseInt(document.getElementById('bet-input').value) || 0));
+    revealQuestion(q);
+  });
+}
+
+function revealQuestion(q){
+  const area = document.getElementById('game-area');
+  area.innerHTML = `
+    <div class="qcard">
+      <p class="hint">دور: ${EGL.escapeHtml(players[turnI].name)} — الرهان: 🎰 ${curBet}</p>
+      <div class="qtext">${EGL.escapeHtml(q.text)}</div>
+      <div class="options" id="opts">${q.options.map((o,i)=>`<button class="option-btn" data-i="${i}">${EGL.escapeHtml(o)}</button>`).join('')}</div>
+    </div>`;
+  area.querySelectorAll('.option-btn').forEach(btn=>btn.addEventListener('click', ()=>{
+    const i = parseInt(btn.dataset.i);
+    area.querySelectorAll('.option-btn').forEach(b=>b.disabled=true);
+    btn.classList.add(i===q.correctIndex?'correct':'wrong');
+    area.querySelectorAll('.option-btn')[q.correctIndex].classList.add('correct');
+    if(i === q.correctIndex){ sb.addScore(turnI, curBet); EGL.beep('correct'); EGL.confetti(40); }
+    else { sb.addScore(turnI, -curBet); EGL.beep('wrong'); }
+    setTimeout(()=>{ turnI = (turnI+1) % players.length; nextTurn(); }, 1700);
+  }));
+}
+
+function showResults(){
+  EGL.confetti(100); EGL.beep('win');
+  const ranking = sb.ranking();
+  const stage = document.getElementById('stage');
+  stage.innerHTML = `<div class="qcard">
+    <div style="font-size:3rem;">🏆</div><h2>أُغلق الكازينو!</h2>
+    <div class="scoreboard" style="justify-content:center;">
+      ${ranking.map((p,r)=>`<div class="player-chip ${r===0?'active':''}"><div style="font-size:1.4rem;">${r===0?'🥇':r===1?'🥈':r===2?'🥉':p.emoji}</div><div class="pname">${EGL.escapeHtml(p.name)}</div><div class="pscore">${p.score}</div></div>`).join('')}
+    </div>
+    <div style="display:flex; gap:10px; justify-content:center; margin-top:16px;">
+      <button class="btn btn-primary" onclick="location.reload()">🔁 لعب مرة أخرى</button>
+      <a class="btn btn-outline" href="../index.html">🏠 الألعاب الأخرى</a>
+    </div>
+  </div>`;
+}
+
+init();
+</script>
+</body>
+</html>

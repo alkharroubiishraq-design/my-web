@@ -1,0 +1,163 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>الرسام السريع — ساحة الصف</title>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>✏️</text></svg>">
+<link rel="stylesheet" href="../css/style.css">
+<style>
+  #draw-canvas{ width:100%; max-width:760px; height:420px; background:#fff; border-radius:16px; touch-action:none; box-shadow: var(--shadow); cursor:crosshair; }
+  .draw-tools{ display:flex; gap:10px; justify-content:center; margin: 12px 0; flex-wrap:wrap; }
+  .color-dot{ width:34px; height:34px; border-radius:50%; border:3px solid transparent; cursor:pointer; }
+  .color-dot.selected{ border-color: var(--accent-2); }
+  .peek-word{ font-size:2rem; font-weight:900; text-align:center; color: var(--accent-2); margin:14px 0; }
+</style>
+</head>
+<body>
+<nav class="topnav"><div class="container">
+  <a class="brand" href="../index.html"><span class="logo">🎲</span> ساحة الصف</a>
+  <div class="navlinks"><a href="../index.html">الرئيسية</a><a href="../index.html#games">الألعاب</a><a href="../questions.html">بنك الأسئلة</a></div>
+</div></nav>
+
+<div class="game-shell">
+  <div class="game-header container">
+    <h1>✏️ الرسام السريع</h1>
+    <p>ارسم الكلمة السرية ليخمنها فريقك قبل نفاد الوقت — بدون كتابة حروف أو أرقام!</p>
+  </div>
+  <div class="game-stage container" id="stage"></div>
+</div>
+
+<script src="../js/common.js"></script>
+<script>
+const ROUND_TIME = 60;
+let sb, players, drawerI, pool, poolIdx, secret, timerInt, timeLeft, drawing=false, ctx;
+
+function init(){
+  const stage = document.getElementById('stage');
+  stage.innerHTML = `<div class="empty-state"><div class="emoji">✏️</div><h3>هيّئ اللعبة</h3><p>تحتاج بنك أسئلة فيه إجابات نصية قصيرة (كلمات يسهل رسمها).</p>
+    <button class="btn btn-primary" id="btn-setup">ابدأ الإعداد 🎮</button></div>`;
+  document.getElementById('btn-setup').addEventListener('click', openSetup);
+  openSetup();
+}
+function openSetup(){
+  EGL.openSetupModal({ title:'إعداد الرسام السريع', allowIndividual:true, allowTeams:true, needQuestions:true }, startGame);
+}
+
+function startGame(cfg){
+  const bank = EGL.getBank(cfg.bankId);
+  const eligible = bank.questions.filter(q => q.answerText && q.answerText.trim().length >= 2 && q.answerText.trim().length <= 16);
+  if(eligible.length < 3){ EGL.toast('تحتاج هذه اللعبة أسئلة ذات إجابات نصية قصيرة (٣ على الأقل)'); return; }
+  pool = EGL.shuffle(eligible);
+  poolIdx = 0;
+  players = cfg.players;
+  drawerI = 0;
+  const stage = document.getElementById('stage');
+  stage.innerHTML = `<div id="sb-wrap" class="scoreboard"></div><div id="round-info"></div>`;
+  sb = new EGL.Scoreboard(document.getElementById('sb-wrap'), players);
+  startRound();
+}
+
+function startRound(){
+  clearInterval(timerInt);
+  sb.setActive(drawerI);
+  if(poolIdx >= pool.length){ pool = EGL.shuffle(pool); poolIdx = 0; }
+  secret = pool[poolIdx++].answerText.trim();
+  const area = document.getElementById('round-info');
+  area.innerHTML = `
+    <div class="qcard">
+      <p class="hint">الرسّام: <strong style="color:var(--accent-2)">${players[drawerI].emoji} ${EGL.escapeHtml(players[drawerI].name)}</strong></p>
+      <p>على الرسّام فقط أن يضغط لرؤية الكلمة، ثم يبدأ الرسم لباقي الصف!</p>
+      <button class="btn btn-gold" id="btn-peek">👁 اعرض الكلمة لي فقط (٣ ثوانٍ)</button>
+    </div>`;
+  document.getElementById('btn-peek').addEventListener('click', peekWord);
+}
+
+function peekWord(){
+  const area = document.getElementById('round-info');
+  area.innerHTML = `<div class="qcard"><div class="peek-word">${EGL.escapeHtml(secret)}</div><p class="hint">احفظها... ستختفي وتبدأ اللوحة تلقائيًا</p></div>`;
+  EGL.beep('tick');
+  setTimeout(startCanvas, 3000);
+}
+
+function startCanvas(){
+  timeLeft = ROUND_TIME;
+  const area = document.getElementById('round-info');
+  area.innerHTML = `
+    <div class="timer-bar"><div id="timer-fill" style="width:100%"></div></div>
+    <canvas id="draw-canvas"></canvas>
+    <div class="draw-tools">
+      ${['#111','#e63946','#2b9be0','#2be08a','#ffd23f'].map((c,i)=>`<div class="color-dot ${i===0?'selected':''}" data-c="${c}" style="background:${c}"></div>`).join('')}
+      <button class="btn btn-outline btn-sm" id="btn-clear">🧹 مسح</button>
+    </div>
+    <div style="display:flex; gap:10px; justify-content:center;">
+      <button class="btn btn-accent" id="btn-guessed">✅ خمّنوا صح (+15)</button>
+      <button class="btn btn-outline" id="btn-give-up">⏭ تخطّي</button>
+    </div>`;
+  setupCanvas();
+  document.querySelectorAll('.color-dot').forEach(d=>d.addEventListener('click', ()=>{
+    document.querySelectorAll('.color-dot').forEach(x=>x.classList.remove('selected'));
+    d.classList.add('selected');
+    ctx.strokeStyle = d.dataset.c;
+  }));
+  document.getElementById('btn-clear').addEventListener('click', ()=> ctx.clearRect(0,0,ctx.canvas.width, ctx.canvas.height));
+  document.getElementById('btn-guessed').addEventListener('click', ()=>{ sb.addScore(drawerI, 15); EGL.beep('correct'); EGL.confetti(50); endRound(); });
+  document.getElementById('btn-give-up').addEventListener('click', endRound);
+  timerInt = setInterval(()=>{
+    timeLeft--;
+    const fill = document.getElementById('timer-fill');
+    if(fill) fill.style.width = (timeLeft/ROUND_TIME*100)+'%';
+    if(timeLeft<=0) endRound();
+  }, 1000);
+}
+
+function setupCanvas(){
+  const canvas = document.getElementById('draw-canvas');
+  const rect = canvas.getBoundingClientRect();
+  canvas.width = rect.width; canvas.height = rect.height;
+  ctx = canvas.getContext('2d');
+  ctx.lineJoin = 'round'; ctx.lineCap = 'round'; ctx.lineWidth = 5;
+  ctx.strokeStyle = '#111';
+  const pos = (e) => {
+    const r = canvas.getBoundingClientRect();
+    const p = e.touches ? e.touches[0] : e;
+    return { x: p.clientX - r.left, y: p.clientY - r.top };
+  };
+  const start = (e) => { drawing = true; const p = pos(e); ctx.beginPath(); ctx.moveTo(p.x, p.y); e.preventDefault(); };
+  const move = (e) => { if(!drawing) return; const p = pos(e); ctx.lineTo(p.x, p.y); ctx.stroke(); e.preventDefault(); };
+  const end = () => { drawing = false; };
+  canvas.addEventListener('mousedown', start);
+  canvas.addEventListener('mousemove', move);
+  window.addEventListener('mouseup', end);
+  canvas.addEventListener('touchstart', start, { passive:false });
+  canvas.addEventListener('touchmove', move, { passive:false });
+  canvas.addEventListener('touchend', end);
+}
+
+function endRound(){
+  clearInterval(timerInt);
+  drawerI++;
+  if(drawerI >= players.length){ showResults(); return; }
+  setTimeout(startRound, 800);
+}
+
+function showResults(){
+  EGL.confetti(100); EGL.beep('win');
+  const ranking = sb.ranking();
+  const stage = document.getElementById('stage');
+  stage.innerHTML = `<div class="qcard">
+    <div style="font-size:3rem;">🏆</div><h2>انتهت الجولات!</h2>
+    <div class="scoreboard" style="justify-content:center;">
+      ${ranking.map((p,r)=>`<div class="player-chip ${r===0?'active':''}"><div style="font-size:1.4rem;">${r===0?'🥇':r===1?'🥈':r===2?'🥉':p.emoji}</div><div class="pname">${EGL.escapeHtml(p.name)}</div><div class="pscore">${p.score}</div></div>`).join('')}
+    </div>
+    <div style="display:flex; gap:10px; justify-content:center; margin-top:16px;">
+      <button class="btn btn-primary" onclick="location.reload()">🔁 لعب مرة أخرى</button>
+      <a class="btn btn-outline" href="../index.html">🏠 الألعاب الأخرى</a>
+    </div>
+  </div>`;
+}
+
+init();
+</script>
+</body>
+</html>

@@ -1,0 +1,168 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>قناص الكلمات — ساحة الصف</title>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>🎯</text></svg>">
+<link rel="stylesheet" href="../css/style.css">
+<style>
+  .sniper-field{ position:relative; width:100%; max-width:820px; height:360px; margin: 14px auto;
+    background: linear-gradient(180deg, var(--bg-soft), var(--surface)); border-radius: var(--radius); border:1px solid rgba(255,255,255,.08); cursor:crosshair; }
+  .sniper-target{ position:absolute; padding:12px 20px; border-radius:12px; background: var(--surface-2); font-weight:800; cursor:pointer; transition:.12s; }
+  .sniper-target:hover{ transform: scale(1.08); border:2px solid var(--accent-2); }
+</style>
+</head>
+<body>
+<nav class="topnav"><div class="container">
+  <a class="brand" href="../index.html"><span class="logo">🎲</span> ساحة الصف</a>
+  <div class="navlinks"><a href="../index.html">الرئيسية</a><a href="../index.html#games">الألعاب</a><a href="../questions.html">بنك الأسئلة</a></div>
+</div></nav>
+
+<div class="game-shell">
+  <div class="game-header container">
+    <h1>🎯 قناص الكلمات</h1>
+    <p>اقرؤوا التعريف، ثم اصطادوا الكلمة الصحيحة من بين المستهدفات المبعثرة بأسرع وقت!</p>
+  </div>
+  <div class="game-stage container" id="stage"></div>
+</div>
+
+<script src="../js/common.js"></script>
+<script>
+const ROUNDS = 8, ROUND_TIME = 10;
+let sb, players, activeI, pool, poolIdx, roundStart, resolved, timerInt, timeLeft, round;
+
+function init(){
+  const stage = document.getElementById('stage');
+  stage.innerHTML = `<div class="empty-state"><div class="emoji">🎯</div><h3>هيّئ اللعبة</h3><p>تحتاج بنك أسئلة فيه إجابات نصية قصيرة (٥ أسئلة على الأقل).</p>
+    <button class="btn btn-primary" id="btn-setup">ابدأ الإعداد 🎮</button></div>`;
+  document.getElementById('btn-setup').addEventListener('click', openSetup);
+  openSetup();
+}
+function openSetup(){
+  EGL.openSetupModal({ title:'إعداد قناص الكلمات', allowIndividual:true, allowTeams:true, needQuestions:true }, startGame);
+}
+
+function startGame(cfg){
+  const bank = EGL.getBank(cfg.bankId);
+  const eligible = bank.questions.filter(q => q.answerText && q.answerText.trim());
+  if(eligible.length < 5){ EGL.toast('تحتاج هذه اللعبة ٥ أسئلة على الأقل ذات إجابات نصية'); return; }
+  pool = EGL.shuffle(eligible);
+  window._allAnswers = eligible.map(q => q.answerText.trim());
+  poolIdx = 0;
+  players = cfg.players;
+  activeI = 0;
+  round = 0;
+  const stage = document.getElementById('stage');
+  stage.innerHTML = `<div id="sb-wrap" class="scoreboard"></div><div id="round-badge" class="badge" style="display:block; text-align:center; margin-bottom:6px;"></div><div id="game-area"></div>`;
+  sb = new EGL.Scoreboard(document.getElementById('sb-wrap'), players);
+  nextRound();
+}
+
+function nextRound(){
+  round++;
+  if(round > ROUNDS || poolIdx >= pool.length){ showResults(); return; }
+  document.getElementById('round-badge').textContent = `🎯 الجولة ${round} / ${Math.min(ROUNDS, pool.length)}`;
+  renderRound();
+}
+
+function renderRound(){
+  clearInterval(timerInt);
+  resolved = false;
+  const q = pool[poolIdx++];
+  const secret = q.answerText.trim();
+  const others = EGL.shuffle(window._allAnswers.filter(a => a !== secret));
+  const uniqueOthers = Array.from(new Set(others)).slice(0, 5);
+  let decoys = uniqueOthers;
+  if(decoys.length < 4) decoys = decoys.concat(EGL.spellingDecoys(secret, 4 - decoys.length));
+  const targets = EGL.shuffle([secret, ...decoys]);
+  window._secret = secret;
+
+  const area = document.getElementById('game-area');
+  area.innerHTML = `
+    <div class="qcard" style="margin-bottom:6px;">
+      <div class="qmeta"><span class="badge">دور: ${EGL.escapeHtml(players[activeI].name)}</span></div>
+      <div class="qtext">${EGL.escapeHtml(q.text)}</div>
+    </div>
+    <div class="timer-bar"><div id="timer-fill" style="width:100%"></div></div>
+    <div class="sniper-field" id="field"></div>`;
+  const field = document.getElementById('field');
+  const cols = Math.ceil(Math.sqrt(targets.length));
+  const rows = Math.ceil(targets.length / cols);
+  const shuffledPos = EGL.shuffle(targets.map((t,i)=>i));
+  targets.forEach((word, i) => {
+    const el = document.createElement('div');
+    el.className = 'sniper-target';
+    el.textContent = word;
+    const cellIdx = shuffledPos[i];
+    const col = cellIdx % cols, row = Math.floor(cellIdx / cols);
+    const jitterX = (Math.random()*10 - 5);
+    const jitterY = (Math.random()*10 - 5);
+    el.style.left = `calc(${(col/cols)*100 + jitterX + 5}% )`;
+    el.style.top = `calc(${(row/rows)*100 + jitterY + 8}% )`;
+    el.addEventListener('click', () => shoot(word === secret));
+    field.appendChild(el);
+  });
+
+  roundStart = performance.now();
+  timeLeft = ROUND_TIME;
+  timerInt = setInterval(()=>{
+    timeLeft--;
+    const fill = document.getElementById('timer-fill');
+    if(fill) fill.style.width = (timeLeft/ROUND_TIME*100)+'%';
+    if(timeLeft<=0) timeUp();
+  }, 1000);
+}
+
+function shoot(isCorrect){
+  if(resolved) return;
+  resolved = true;
+  clearInterval(timerInt);
+  document.querySelectorAll('.sniper-target').forEach(t=>{
+    t.style.pointerEvents = 'none';
+    if(t.textContent === window._secret) t.style.background = 'rgba(43,224,138,.4)';
+  });
+  if(isCorrect){
+    const elapsed = (performance.now() - roundStart)/1000;
+    const bonus = Math.max(0, Math.round((ROUND_TIME - elapsed)));
+    sb.addScore(activeI, 10 + bonus);
+    EGL.beep('correct'); EGL.confetti(30);
+  } else {
+    EGL.beep('wrong');
+  }
+  setTimeout(()=>{ activeI = (activeI+1) % players.length; nextRound(); }, 1400);
+}
+
+function timeUp(){
+  if(resolved) return;
+  resolved = true;
+  clearInterval(timerInt);
+  document.querySelectorAll('.sniper-target').forEach(t=>{
+    t.style.pointerEvents = 'none';
+    if(t.textContent === window._secret) t.style.background = 'rgba(43,224,138,.4)';
+  });
+  EGL.beep('wrong');
+  EGL.toast('⏱ انتهى الوقت!');
+  setTimeout(()=>{ activeI = (activeI+1) % players.length; nextRound(); }, 1400);
+}
+
+function showResults(){
+  EGL.confetti(100); EGL.beep('win');
+  const ranking = sb.ranking();
+  const stage = document.getElementById('stage');
+  stage.innerHTML = `<div class="qcard">
+    <div style="font-size:3rem;">🏆</div><h2>انتهت الجولات!</h2>
+    <div class="scoreboard" style="justify-content:center;">
+      ${ranking.map((p,r)=>`<div class="player-chip ${r===0?'active':''}"><div style="font-size:1.4rem;">${r===0?'🥇':r===1?'🥈':r===2?'🥉':p.emoji}</div><div class="pname">${EGL.escapeHtml(p.name)}</div><div class="pscore">${p.score}</div></div>`).join('')}
+    </div>
+    <div style="display:flex; gap:10px; justify-content:center; margin-top:16px;">
+      <button class="btn btn-primary" onclick="location.reload()">🔁 لعب مرة أخرى</button>
+      <a class="btn btn-outline" href="../index.html">🏠 الألعاب الأخرى</a>
+    </div>
+  </div>`;
+}
+
+init();
+</script>
+</body>
+</html>

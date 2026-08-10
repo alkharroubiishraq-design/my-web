@@ -1,0 +1,147 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>سلسلة الكلمات — ساحة الصف</title>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>🔗</text></svg>">
+<link rel="stylesheet" href="../css/style.css">
+<style>
+  .current-word{ font-size:2.6rem; font-weight:900; text-align:center; margin: 14px 0; color: var(--accent-2); }
+  .chain-list{ display:flex; flex-wrap:wrap; gap:8px; justify-content:center; margin: 14px 0; max-height:120px; overflow-y:auto; }
+  .chain-list span{ background: var(--surface-2); padding:5px 12px; border-radius:999px; font-size:.8rem; font-weight:700; }
+</style>
+</head>
+<body>
+<nav class="topnav"><div class="container">
+  <a class="brand" href="../index.html"><span class="logo">🎲</span> ساحة الصف</a>
+  <div class="navlinks"><a href="../index.html">الرئيسية</a><a href="../index.html#games">الألعاب</a><a href="../questions.html">بنك الأسئلة</a></div>
+</div></nav>
+
+<div class="game-shell">
+  <div class="game-header container">
+    <h1>🔗 سلسلة الكلمات</h1>
+    <p>كل لاعب يكتب كلمة جديدة تبدأ بآخر حرف من الكلمة السابقة، ضمن موضوع الدرس!</p>
+  </div>
+  <div class="game-stage container" id="stage"></div>
+</div>
+
+<script src="../js/common.js"></script>
+<script>
+const TURN_TIME = 15;
+const SEED_WORDS = ['مدرسة','كتاب','قلم','معلم','علم','رياضة','شمس'];
+let sb, players, activeI, turnsLeft, currentWord, used, timerInt, timeLeft;
+
+function init(){
+  const stage = document.getElementById('stage');
+  stage.innerHTML = `<div class="empty-state"><div class="emoji">🔗</div><h3>هيّئ اللعبة</h3><p>لا تحتاج بنك أسئلة — فقط حدد كلمة البداية (اختياري).</p>
+    <button class="btn btn-primary" id="btn-setup">ابدأ الإعداد 🎮</button></div>`;
+  document.getElementById('btn-setup').addEventListener('click', openSetup);
+  openSetup();
+}
+function openSetup(){
+  EGL.openSetupModal({
+    title:'إعداد سلسلة الكلمات', allowIndividual:true, allowTeams:true, skipBank:true,
+    extraFieldsHtml: `<label>كلمة البداية (اختياري)</label><input type="text" id="wc-start" data-extra="startword" placeholder="مثال: مدرسة">`
+  }, startGame);
+}
+
+function startGame(cfg){
+  players = cfg.players;
+  activeI = 0;
+  turnsLeft = players.length * 4;
+  currentWord = (cfg.extra.startword || '').trim() || EGL.pick(SEED_WORDS);
+  used = new Set([normalize(currentWord)]);
+  const stage = document.getElementById('stage');
+  stage.innerHTML = `<div id="sb-wrap" class="scoreboard"></div><div id="game-area"></div>`;
+  sb = new EGL.Scoreboard(document.getElementById('sb-wrap'), players);
+  renderTurn();
+}
+
+function normalize(w){ return w.trim().replace(/[أإآ]/g,'ا').replace(/ة$/, 'ه'); }
+function lastLetter(w){ const n = normalize(w); return n[n.length-1]; }
+
+function renderTurn(){
+  clearInterval(timerInt);
+  timeLeft = TURN_TIME;
+  const area = document.getElementById('game-area');
+  area.innerHTML = `
+    <div class="qcard">
+      <p class="hint">دور: <strong style="color:var(--accent-2)">${players[activeI].emoji} ${EGL.escapeHtml(players[activeI].name)}</strong></p>
+      <p>الكلمة الحالية:</p>
+      <div class="current-word">${EGL.escapeHtml(currentWord)}</div>
+      <p class="hint">اكتب كلمة تبدأ بالحرف: <strong>${lastLetter(currentWord)}</strong></p>
+      <div class="timer-bar"><div id="timer-fill" style="width:100%"></div></div>
+      <input type="text" id="wc-input" placeholder="اكتب كلمتك هنا...">
+      <button class="btn btn-primary btn-block" id="btn-submit">إرسال ✅</button>
+      <p id="wc-error" style="color:var(--danger); font-weight:700; text-align:center; min-height:20px;"></p>
+      <div class="chain-list" id="chain-list"></div>
+    </div>`;
+  renderChainList();
+  const input = document.getElementById('wc-input');
+  input.focus();
+  input.addEventListener('keydown', e => { if(e.key === 'Enter') submitWord(); });
+  document.getElementById('btn-submit').addEventListener('click', submitWord);
+  timerInt = setInterval(()=>{
+    timeLeft--;
+    const fill = document.getElementById('timer-fill');
+    if(fill) fill.style.width = (timeLeft/TURN_TIME*100)+'%';
+    if(timeLeft<=0) timeUp();
+  }, 1000);
+}
+
+function renderChainList(){
+  const list = document.getElementById('chain-list');
+  if(list) list.innerHTML = Array.from(used).slice(-10).map(w=>`<span>${EGL.escapeHtml(w)}</span>`).join('');
+}
+
+function submitWord(){
+  const input = document.getElementById('wc-input');
+  const word = input.value.trim();
+  const errEl = document.getElementById('wc-error');
+  if(word.length < 2){ errEl.textContent = 'الكلمة قصيرة جدًا'; return; }
+  const norm = normalize(word);
+  if(used.has(norm)){ errEl.textContent = 'هذه الكلمة استُخدمت من قبل!'; return; }
+  if(norm[0] !== lastLetter(currentWord)){ errEl.textContent = `يجب أن تبدأ الكلمة بحرف "${lastLetter(currentWord)}"`; return; }
+  clearInterval(timerInt);
+  used.add(norm);
+  currentWord = word;
+  sb.addScore(activeI, 10);
+  EGL.beep('correct'); EGL.confetti(20);
+  nextTurn();
+}
+
+function timeUp(){
+  clearInterval(timerInt);
+  EGL.beep('wrong');
+  EGL.toast(`⏱ انتهى الوقت على ${players[activeI].name}!`);
+  nextTurn();
+}
+
+function nextTurn(){
+  turnsLeft--;
+  activeI = (activeI + 1) % players.length;
+  if(turnsLeft <= 0){ showResults(); return; }
+  setTimeout(renderTurn, 700);
+}
+
+function showResults(){
+  EGL.confetti(100); EGL.beep('win');
+  const ranking = sb.ranking();
+  const stage = document.getElementById('stage');
+  stage.innerHTML = `<div class="qcard">
+    <div style="font-size:3rem;">🏆</div><h2>انتهت السلسلة!</h2>
+    <div class="scoreboard" style="justify-content:center;">
+      ${ranking.map((p,r)=>`<div class="player-chip ${r===0?'active':''}"><div style="font-size:1.4rem;">${r===0?'🥇':r===1?'🥈':r===2?'🥉':p.emoji}</div><div class="pname">${EGL.escapeHtml(p.name)}</div><div class="pscore">${p.score}</div></div>`).join('')}
+    </div>
+    <div style="display:flex; gap:10px; justify-content:center; margin-top:16px;">
+      <button class="btn btn-primary" onclick="location.reload()">🔁 لعب مرة أخرى</button>
+      <a class="btn btn-outline" href="../index.html">🏠 الألعاب الأخرى</a>
+    </div>
+  </div>`;
+}
+
+init();
+</script>
+</body>
+</html>

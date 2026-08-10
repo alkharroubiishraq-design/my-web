@@ -1,0 +1,140 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>مزاد الكلمات — ساحة الصف</title>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>💰</text></svg>">
+<link rel="stylesheet" href="../css/style.css">
+<style>
+  .bid-row{ display:flex; align-items:center; gap:10px; background: var(--surface-2); border-radius:12px; padding:10px 14px; margin-bottom:8px; }
+  .bid-row .bname{ flex:1; font-weight:800; }
+  .bid-row .bbudget{ font-size:.8rem; color: var(--text-dim); }
+  .bid-row input{ width:90px; margin-bottom:0; }
+</style>
+</head>
+<body>
+<nav class="topnav"><div class="container">
+  <a class="brand" href="../index.html"><span class="logo">🎲</span> ساحة الصف</a>
+  <div class="navlinks"><a href="../index.html">الرئيسية</a><a href="../index.html#games">الألعاب</a><a href="../questions.html">بنك الأسئلة</a></div>
+</div></nav>
+
+<div class="game-shell">
+  <div class="game-header container">
+    <h1>💰 مزاد الكلمات</h1>
+    <p>راهنوا من ميزانيتكم للفوز بحق الإجابة — فوز المزاد لا يعني فوز النقاط، يجب الإجابة صح!</p>
+  </div>
+  <div class="game-stage container" id="stage"></div>
+</div>
+
+<script src="../js/common.js"></script>
+<script>
+const ROUNDS = 8, BUDGET = 100;
+let sb, players, budgets, pool, poolIdx, round;
+
+function init(){
+  const stage = document.getElementById('stage');
+  stage.innerHTML = `<div class="empty-state"><div class="emoji">💰</div><h3>هيّئ اللعبة</h3><p>كل فريق يبدأ بميزانية ${BUDGET} نقطة افتراضية للمزايدة.</p>
+    <button class="btn btn-primary" id="btn-setup">ابدأ الإعداد 🎮</button></div>`;
+  document.getElementById('btn-setup').addEventListener('click', openSetup);
+  openSetup();
+}
+function openSetup(){
+  EGL.openSetupModal({ title:'إعداد مزاد الكلمات', allowIndividual:true, allowTeams:true, needQuestions:true, qType:['mcq'], minPlayers:2 }, startGame);
+}
+
+function startGame(cfg){
+  const bank = EGL.getBank(cfg.bankId);
+  pool = EGL.shuffle(bank.questions.filter(q=>q.type==='mcq'));
+  if(!pool.length){ EGL.toast('لا توجد أسئلة اختيار من متعدد في هذا البنك'); return; }
+  poolIdx = 0;
+  players = cfg.players;
+  budgets = players.map(()=>BUDGET);
+  round = 0;
+  const stage = document.getElementById('stage');
+  stage.innerHTML = `<div id="sb-wrap" class="scoreboard"></div><div id="round-badge" class="badge" style="display:block; text-align:center; margin-bottom:10px;"></div><div id="game-area"></div>`;
+  sb = new EGL.Scoreboard(document.getElementById('sb-wrap'), players);
+  nextRound();
+}
+
+function nextRound(){
+  round++;
+  if(round > ROUNDS || poolIdx >= pool.length){ showResults(); return; }
+  document.getElementById('round-badge').textContent = `💰 الجولة ${round} / ${Math.min(ROUNDS, pool.length)}`;
+  renderAuction();
+}
+
+function renderAuction(){
+  const q = pool[poolIdx++];
+  window._curQ = q;
+  const area = document.getElementById('game-area');
+  area.innerHTML = `
+    <div class="qcard">
+      <p class="hint">السؤال قيد المزايدة:</p>
+      <div class="qtext">${EGL.escapeHtml(q.text)}</div>
+      <p>ضعوا مزايدتكم (من ميزانيتكم) على ثقتكم بمعرفة الإجابة:</p>
+      <div id="bid-rows"></div>
+      <button class="btn btn-gold btn-block" id="btn-close-auction" style="margin-top:10px;">🔨 أغلق المزاد</button>
+    </div>`;
+  const rows = document.getElementById('bid-rows');
+  rows.innerHTML = players.map((p,i)=>`
+    <div class="bid-row">
+      <span class="bname">${p.emoji} ${EGL.escapeHtml(p.name)}</span>
+      <span class="bbudget">الرصيد: ${budgets[i]}</span>
+      <input type="number" min="0" max="${budgets[i]}" value="0" data-i="${i}" class="bid-input">
+    </div>`).join('');
+  document.getElementById('btn-close-auction').addEventListener('click', closeAuction);
+}
+
+function closeAuction(){
+  const bids = players.map((p,i)=>{
+    const input = document.querySelector(`.bid-input[data-i="${i}"]`);
+    let v = parseInt(input.value) || 0;
+    v = Math.max(0, Math.min(budgets[i], v));
+    return v;
+  });
+  const maxBid = Math.max(...bids);
+  if(maxBid <= 0){ EGL.toast('لم يزايد أحد! ننتقل للسؤال التالي'); setTimeout(nextRound, 1000); return; }
+  const winners = bids.map((b,i)=>b===maxBid?i:-1).filter(i=>i>-1);
+  const winnerI = winners[Math.floor(Math.random()*winners.length)];
+  budgets[winnerI] -= maxBid;
+  EGL.beep('tick');
+  const q = window._curQ;
+  const area = document.getElementById('game-area');
+  area.innerHTML = `
+    <div class="qcard">
+      <div class="qmeta"><span class="badge">🏆 فاز بالمزاد: ${players[winnerI].emoji} ${EGL.escapeHtml(players[winnerI].name)} بمزايدة ${maxBid}</span></div>
+      <div class="qtext">${EGL.escapeHtml(q.text)}</div>
+      <div class="options" id="opts">${q.options.map((o,i)=>`<button class="option-btn" data-i="${i}">${EGL.escapeHtml(o)}</button>`).join('')}</div>
+    </div>`;
+  area.querySelectorAll('.option-btn').forEach(btn=>btn.addEventListener('click', ()=>{
+    const i = parseInt(btn.dataset.i);
+    area.querySelectorAll('.option-btn').forEach(b=>b.disabled=true);
+    btn.classList.add(i===q.correctIndex?'correct':'wrong');
+    area.querySelectorAll('.option-btn')[q.correctIndex].classList.add('correct');
+    if(i === q.correctIndex){ sb.addScore(winnerI, maxBid); EGL.beep('correct'); EGL.confetti(40); }
+    else EGL.beep('wrong');
+    setTimeout(nextRound, 1700);
+  }));
+}
+
+function showResults(){
+  EGL.confetti(100); EGL.beep('win');
+  const ranking = sb.ranking();
+  const stage = document.getElementById('stage');
+  stage.innerHTML = `<div class="qcard">
+    <div style="font-size:3rem;">🏆</div><h2>انتهى المزاد!</h2>
+    <div class="scoreboard" style="justify-content:center;">
+      ${ranking.map((p,r)=>`<div class="player-chip ${r===0?'active':''}"><div style="font-size:1.4rem;">${r===0?'🥇':r===1?'🥈':r===2?'🥉':p.emoji}</div><div class="pname">${EGL.escapeHtml(p.name)}</div><div class="pscore">${p.score}</div></div>`).join('')}
+    </div>
+    <div style="display:flex; gap:10px; justify-content:center; margin-top:16px;">
+      <button class="btn btn-primary" onclick="location.reload()">🔁 لعب مرة أخرى</button>
+      <a class="btn btn-outline" href="../index.html">🏠 الألعاب الأخرى</a>
+    </div>
+  </div>`;
+}
+
+init();
+</script>
+</body>
+</html>

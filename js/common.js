@@ -419,3 +419,97 @@ const EGL = (() => {
     genMathProblem, genMathStatement, scrambleWord, spellingDecoys
   };
 })();
+
+/* =========================================================
+   أدوات إدارة الصف العائمة — زر التجميد وزر المفاجأة
+   تُضاف تلقائيًا لأي صفحة لعبة تحتوي على .game-shell
+   ========================================================= */
+(function mountTeacherControls() {
+  function init() {
+    if (!document.querySelector('.game-shell')) return;
+    if (document.getElementById('egl-teacher-controls')) return;
+
+    const style = document.createElement('style');
+    style.textContent = `
+      #egl-teacher-controls{ position:fixed; bottom:18px; left:18px; z-index:180; display:flex; flex-direction:column; gap:10px; }
+      .egl-tc-btn{ width:56px; height:56px; border-radius:50%; border:none; cursor:pointer; font-size:1.4rem;
+        display:flex; align-items:center; justify-content:center; box-shadow:0 8px 20px rgba(0,0,0,.35); }
+      .egl-tc-freeze{ background: var(--grad-4, linear-gradient(135deg,#3f8ef0,#21e6c1)); }
+      .egl-tc-surprise{ background: var(--grad-3, linear-gradient(135deg,#ffd23f,#ff5c9e)); }
+      .egl-freeze-overlay{ position:fixed; inset:0; background: rgba(5,6,20,.85); backdrop-filter: blur(6px);
+        z-index:400; display:flex; flex-direction:column; align-items:center; justify-content:center; gap:18px; }
+      .egl-freeze-overlay .ico{ font-size:5rem; }
+      .egl-freeze-overlay h2{ color:#fff; font-size:1.8rem; }
+      .egl-surprise-overlay{ position:fixed; inset:0; background: rgba(5,6,20,.88); z-index:400;
+        display:flex; flex-direction:column; align-items:center; justify-content:center; gap:10px; text-align:center; padding:20px; cursor:pointer; }
+      .egl-surprise-overlay .ico{ font-size:5.5rem; animation: eglPop .6s ease; }
+      .egl-surprise-overlay h2{ color:#ffd23f; font-size:2.2rem; margin:0; }
+      .egl-surprise-overlay p{ color:#fff; font-size:1.3rem; max-width:600px; }
+      @keyframes eglPop{ from{ transform:scale(.3); opacity:0; } to{ transform:scale(1); opacity:1; } }
+      .egl-modal-mini{ background:var(--surface,#1e2354); border-radius:20px; padding:24px; max-width:420px; width:calc(100% - 40px);
+        box-shadow:0 20px 50px rgba(0,0,0,.5); border:1px solid rgba(255,255,255,.1); }
+    `;
+    document.head.appendChild(style);
+
+    const wrap = document.createElement('div');
+    wrap.id = 'egl-teacher-controls';
+    wrap.innerHTML = `
+      <button class="egl-tc-btn egl-tc-freeze" id="egl-tc-freeze" title="تجميد الشاشة">⏸</button>
+      <button class="egl-tc-btn egl-tc-surprise" id="egl-tc-surprise" title="رسالة مفاجئة">🎉</button>
+    `;
+    document.body.appendChild(wrap);
+
+    document.getElementById('egl-tc-freeze').addEventListener('click', () => {
+      const overlay = document.createElement('div');
+      overlay.className = 'egl-freeze-overlay';
+      overlay.innerHTML = `
+        <div class="ico">⏸</div>
+        <h2>الحصة متوقفة مؤقتًا</h2>
+        <button class="btn btn-primary" id="egl-unfreeze">▶ متابعة اللعب</button>`;
+      document.body.appendChild(overlay);
+      const unfreeze = () => overlay.remove();
+      overlay.querySelector('#egl-unfreeze').addEventListener('click', unfreeze);
+      const escHandler = (e) => { if (e.key === 'Escape') { unfreeze(); document.removeEventListener('keydown', escHandler); } };
+      document.addEventListener('keydown', escHandler);
+    });
+
+    document.getElementById('egl-tc-surprise').addEventListener('click', () => {
+      const promptOverlay = document.createElement('div');
+      promptOverlay.className = 'modal-overlay';
+      promptOverlay.innerHTML = `
+        <div class="egl-modal-mini">
+          <h2 style="margin-bottom:6px;">🎉 رسالة مفاجئة</h2>
+          <p style="color:var(--text-dim,#b8bce6); margin-bottom:14px;">فاجئ طالبًا مميزًا برسالة شكر تظهر كبيرة على الشاشة!</p>
+          <label>اسم الطالب (اختياري)</label>
+          <input type="text" id="egl-sp-name" placeholder="مثال: سارة">
+          <label>الرسالة</label>
+          <input type="text" id="egl-sp-msg" value="أحسنت! أنت مميز 👏">
+          <div class="modal-actions">
+            <button class="btn btn-outline" id="egl-sp-cancel">إلغاء</button>
+            <button class="btn btn-primary" id="egl-sp-show">أظهر المفاجأة 🎉</button>
+          </div>
+        </div>`;
+      document.body.appendChild(promptOverlay);
+      promptOverlay.querySelector('#egl-sp-cancel').addEventListener('click', () => promptOverlay.remove());
+      promptOverlay.querySelector('#egl-sp-show').addEventListener('click', () => {
+        const name = promptOverlay.querySelector('#egl-sp-name').value.trim();
+        const msg = promptOverlay.querySelector('#egl-sp-msg').value.trim() || 'أحسنت! أنت مميز 👏';
+        promptOverlay.remove();
+        const surprise = document.createElement('div');
+        surprise.className = 'egl-surprise-overlay';
+        surprise.innerHTML = `
+          <div class="ico">🎉</div>
+          <h2>${name ? EGL.escapeHtml(name) : 'مفاجأة!'}</h2>
+          <p>${EGL.escapeHtml(msg)}</p>
+          <p style="color:var(--text-dim,#b8bce6); font-size:.9rem;">(اضغط في أي مكان للإغلاق)</p>`;
+        document.body.appendChild(surprise);
+        if (window.EGL && EGL.confetti) EGL.confetti(120);
+        if (window.EGL && EGL.beep) EGL.beep('win');
+        surprise.addEventListener('click', () => surprise.remove());
+        setTimeout(() => { if (document.body.contains(surprise)) surprise.remove(); }, 6000);
+      });
+    });
+  }
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', init);
+  else init();
+})();

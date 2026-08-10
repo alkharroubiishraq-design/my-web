@@ -1,0 +1,135 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>فك شيفرة الإيموجي — ساحة الصف</title>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>🔐</text></svg>">
+<link rel="stylesheet" href="../css/style.css">
+<style>
+  .emoji-puzzle{ font-size:4.5rem; text-align:center; margin: 20px 0; letter-spacing:14px; }
+</style>
+</head>
+<body>
+<nav class="topnav"><div class="container">
+  <a class="brand" href="../index.html"><span class="logo">🎲</span> ساحة الصف</a>
+  <div class="navlinks"><a href="../index.html">الرئيسية</a><a href="../index.html#games">الألعاب</a><a href="../questions.html">بنك الأسئلة</a></div>
+</div></nav>
+
+<div class="game-shell">
+  <div class="game-header container">
+    <h1>🔐 فك شيفرة الإيموجي</h1>
+    <p>استنتجوا الكلمة أو الفكرة من سلسلة الرموز التعبيرية — تحدٍّ ممتع لكل الأعمار!</p>
+  </div>
+  <div class="game-stage container" id="stage"></div>
+</div>
+
+<script src="../js/common.js"></script>
+<script>
+const SEED_RIDDLES = [
+  { e:'🌙⭐', a:'الليل' },
+  { e:'🐝🍯', a:'خلية النحل' },
+  { e:'🔥🚒', a:'رجل الإطفاء' },
+  { e:'📚🎒', a:'المدرسة' },
+  { e:'☀️🌻', a:'عباد الشمس' },
+  { e:'👑🦁', a:'ملك الغابة' },
+  { e:'🌧️🌈', a:'قوس قزح' },
+  { e:'🕌🌙', a:'رمضان' },
+  { e:'✈️🌍', a:'السفر' },
+  { e:'🐦🪺', a:'عش الطائر' },
+  { e:'🧠💡', a:'الفكرة' },
+  { e:'⏰🛏️', a:'الاستيقاظ' },
+  { e:'🐫🏜️', a:'الصحراء' },
+  { e:'🌊🏄', a:'ركوب الأمواج' },
+  { e:'🎂🎉', a:'عيد الميلاد' },
+  { e:'🦷🪥', a:'تنظيف الأسنان' },
+  { e:'🐔🥚', a:'الدجاجة والبيضة' },
+  { e:'🌳🍃', a:'الشجرة' },
+  { e:'❄️⛄', a:'رجل الثلج' },
+  { e:'🐱🐭', a:'القط والفأر' },
+  { e:'🧲⚙️', a:'المغناطيس' },
+  { e:'🩺💊', a:'الطبيب' },
+  { e:'🚀👨‍🚀', a:'رائد الفضاء' },
+  { e:'📖✍️', a:'كتابة قصة' },
+];
+
+let sb, players, pool, poolIdx, round, ROUNDS;
+
+function init(){
+  const stage = document.getElementById('stage');
+  stage.innerHTML = `<div class="empty-state"><div class="emoji">🔐</div><h3>هيّئ اللعبة</h3><p>ألغاز إيموجي جاهزة مسبقًا — لا تحتاج بنك أسئلة.</p>
+    <button class="btn btn-primary" id="btn-setup">ابدأ الإعداد 🎮</button></div>`;
+  document.getElementById('btn-setup').addEventListener('click', openSetup);
+  openSetup();
+}
+function openSetup(){
+  EGL.openSetupModal({ title:'إعداد فك شيفرة الإيموجي', allowIndividual:true, allowTeams:true, skipBank:true }, startGame);
+}
+
+function startGame(cfg){
+  players = cfg.players;
+  pool = EGL.shuffle(SEED_RIDDLES);
+  poolIdx = 0;
+  ROUNDS = Math.min(15, pool.length);
+  round = 0;
+  const stage = document.getElementById('stage');
+  stage.innerHTML = `<div id="sb-wrap" class="scoreboard"></div><div id="round-badge" class="badge" style="display:block; text-align:center; margin-bottom:6px;"></div><div id="game-area"></div>`;
+  sb = new EGL.Scoreboard(document.getElementById('sb-wrap'), players);
+  nextRound();
+}
+
+function nextRound(){
+  round++;
+  if(round > ROUNDS){ showResults(); return; }
+  document.getElementById('round-badge').textContent = `🔐 اللغز ${round} / ${ROUNDS}`;
+  renderRiddle();
+}
+
+function renderRiddle(){
+  const riddle = pool[poolIdx++];
+  window._curAnswer = riddle.a;
+  const area = document.getElementById('game-area');
+  area.innerHTML = `
+    <div class="qcard">
+      <div class="emoji-puzzle">${riddle.e}</div>
+      <p style="text-align:center; font-weight:700;" id="answer-reveal"></p>
+      <p>من خمّن أولًا؟</p>
+      <div style="display:flex; gap:10px; justify-content:center; flex-wrap:wrap;">
+        ${players.map((p,i)=>`<button class="btn btn-accent btn-sm" data-i="${i}">${p.emoji} ${EGL.escapeHtml(p.name)}</button>`).join('')}
+        <button class="btn btn-outline btn-sm" id="btn-reveal">👁 كشف الإجابة</button>
+        <button class="btn btn-outline btn-sm" id="btn-skip">⏭ تخطّي</button>
+      </div>
+    </div>`;
+  area.querySelectorAll('button[data-i]').forEach(btn=>btn.addEventListener('click', ()=>{
+    const i = parseInt(btn.dataset.i);
+    sb.addScore(i, 10);
+    EGL.beep('correct'); EGL.confetti(30);
+    document.getElementById('answer-reveal').textContent = '✅ ' + riddle.a;
+    setTimeout(nextRound, 1400);
+  }));
+  area.querySelector('#btn-reveal').addEventListener('click', ()=>{
+    document.getElementById('answer-reveal').textContent = '💡 الإجابة: ' + riddle.a;
+  });
+  area.querySelector('#btn-skip').addEventListener('click', ()=>{ EGL.beep('tick'); nextRound(); });
+}
+
+function showResults(){
+  EGL.confetti(100); EGL.beep('win');
+  const ranking = sb.ranking();
+  const stage = document.getElementById('stage');
+  stage.innerHTML = `<div class="qcard">
+    <div style="font-size:3rem;">🏆</div><h2>انتهت الألغاز!</h2>
+    <div class="scoreboard" style="justify-content:center;">
+      ${ranking.map((p,r)=>`<div class="player-chip ${r===0?'active':''}"><div style="font-size:1.4rem;">${r===0?'🥇':r===1?'🥈':r===2?'🥉':p.emoji}</div><div class="pname">${EGL.escapeHtml(p.name)}</div><div class="pscore">${p.score}</div></div>`).join('')}
+    </div>
+    <div style="display:flex; gap:10px; justify-content:center; margin-top:16px;">
+      <button class="btn btn-primary" onclick="location.reload()">🔁 لعب مرة أخرى</button>
+      <a class="btn btn-outline" href="../index.html">🏠 الألعاب الأخرى</a>
+    </div>
+  </div>`;
+}
+
+init();
+</script>
+</body>
+</html>
