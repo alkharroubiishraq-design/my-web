@@ -1,0 +1,151 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>عجلة الحظ — ساحة الصف</title>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>🎡</text></svg>">
+<link rel="stylesheet" href="../css/style.css">
+<style>
+  .wheel-container{ position:relative; width:min(360px,86vw); height:min(360px,86vw); margin: 10px auto 26px; }
+  .wheel{ width:100%; height:100%; border-radius:50%; position:relative; box-shadow: 0 0 0 10px var(--surface-2), var(--shadow); transition: transform 4.5s cubic-bezier(.17,.67,.24,1); }
+  .wheel-label{ position:absolute; top:50%; left:50%; width:50%; height:2px; transform-origin: 0 0; display:flex; align-items:center; padding-right:14px; font-weight:800; font-size:.82rem; color:#fff; text-shadow: 0 1px 3px rgba(0,0,0,.5); }
+  .wheel-pointer{ position:absolute; top:-14px; left:50%; transform:translateX(-50%); font-size:2.2rem; z-index:5; filter: drop-shadow(0 4px 6px rgba(0,0,0,.4)); }
+  .wheel-hub{ position:absolute; top:50%; left:50%; transform:translate(-50%,-50%); width:56px; height:56px; border-radius:50%; background: var(--grad-1); display:flex; align-items:center; justify-content:center; font-size:1.4rem; box-shadow: var(--shadow); z-index:4; }
+</style>
+</head>
+<body>
+<nav class="topnav"><div class="container">
+  <a class="brand" href="../index.html"><span class="logo">🎲</span> ساحة الصف</a>
+  <div class="navlinks"><a href="../index.html">الرئيسية</a><a href="../index.html#games">الألعاب</a><a href="../questions.html">بنك الأسئلة</a></div>
+</div></nav>
+
+<div class="game-shell">
+  <div class="game-header container">
+    <h1>🎡 عجلة الحظ</h1>
+    <p>أدر العجلة لاختيار فئة السؤال القادم — مثالية للتشويق وكسر الجمود!</p>
+  </div>
+  <div class="game-stage container" id="stage"></div>
+</div>
+
+<script src="../js/common.js"></script>
+<script>
+let sb, categories, questionsByCat, currentQ, spinning=false;
+
+function init(){
+  const stage = document.getElementById('stage');
+  stage.innerHTML = `<div class="empty-state"><div class="emoji">🎡</div><h3>هيّئ اللعبة</h3><p>اختر بنك الأسئلة وطريقة اللعب للبدء.</p>
+    <button class="btn btn-primary" id="btn-setup">ابدأ الإعداد 🎮</button></div>`;
+  document.getElementById('btn-setup').addEventListener('click', openSetup);
+  openSetup();
+}
+function openSetup(){
+  EGL.openSetupModal({ title:'إعداد عجلة الحظ', allowIndividual:true, allowTeams:true, needQuestions:true }, startGame);
+}
+
+function startGame(cfg){
+  const bank = EGL.getBank(cfg.bankId);
+  questionsByCat = {};
+  bank.questions.forEach(q=>{
+    const c = q.category || 'عام';
+    (questionsByCat[c] = questionsByCat[c] || []).push(q);
+  });
+  categories = Object.keys(questionsByCat);
+  if(!categories.length){ EGL.toast('لا توجد أسئلة في هذا البنك'); return; }
+
+  const stage = document.getElementById('stage');
+  stage.innerHTML = `
+    <div id="sb-wrap" class="scoreboard"></div>
+    <div class="wheel-container">
+      <div class="wheel-pointer">📍</div>
+      <div class="wheel" id="wheel"></div>
+      <div class="wheel-hub">🎯</div>
+    </div>
+    <button class="btn btn-gold" id="btn-spin">🎡 أدر العجلة</button>
+    <div id="q-area" style="margin-top:22px; width:100%;"></div>
+  `;
+  sb = new EGL.Scoreboard(document.getElementById('sb-wrap'), cfg.players);
+  drawWheel();
+  document.getElementById('btn-spin').addEventListener('click', spin);
+}
+
+const COLORS = ['#7c5cff','#ff5c9e','#21e6c1','#ffd23f','#3f8ef0','#f0507a','#35c46a','#a95ff0','#f0a93f','#12b8a3'];
+
+function drawWheel(){
+  const wheel = document.getElementById('wheel');
+  const n = categories.length;
+  const seg = 360/n;
+  const gradParts = categories.map((c,i)=>`${COLORS[i%COLORS.length]} ${i*seg}deg ${(i+1)*seg}deg`).join(', ');
+  wheel.style.background = `conic-gradient(${gradParts})`;
+  wheel.innerHTML = categories.map((c,i)=>{
+    const angle = seg*i + seg/2;
+    return `<div class="wheel-label" style="transform: rotate(${angle}deg);"><span>${EGL.escapeHtml(c)}</span></div>`;
+  }).join('');
+  wheel.dataset.rotation = 0;
+}
+
+function spin(){
+  if(spinning) return;
+  spinning = true;
+  document.getElementById('btn-spin').disabled = true;
+  const n = categories.length;
+  const seg = 360/n;
+  const targetIdx = Math.floor(Math.random()*n);
+  const centerAngle = seg*targetIdx + seg/2;
+  const prevRotation = parseFloat(document.getElementById('wheel').dataset.rotation) || 0;
+  const extraTurns = 5 + Math.floor(Math.random()*3);
+  const targetMod = (360 - centerAngle + 360) % 360;
+  const prevMod = ((prevRotation % 360) + 360) % 360;
+  let delta = targetMod - prevMod; if(delta<0) delta += 360;
+  const newRotation = prevRotation + extraTurns*360 + delta;
+  const wheel = document.getElementById('wheel');
+  wheel.style.transform = `rotate(${newRotation}deg)`;
+  wheel.dataset.rotation = newRotation;
+  EGL.beep('tick');
+  setTimeout(()=>{
+    spinning = false;
+    document.getElementById('btn-spin').disabled = false;
+    landOn(categories[targetIdx]);
+  }, 4600);
+}
+
+function landOn(cat){
+  EGL.beep('correct');
+  const pool = questionsByCat[cat];
+  currentQ = EGL.pick(pool);
+  const activeName = sb.players[sb.activeIndex()].name;
+  const area = document.getElementById('q-area');
+  const isGraded = currentQ.type !== 'open';
+  area.innerHTML = `
+    <div class="qcard">
+      <div class="qmeta">
+        <span class="badge">🎯 الفئة: ${EGL.escapeHtml(cat)}</span>
+        <span class="badge">دور: ${EGL.escapeHtml(activeName)}</span>
+      </div>
+      <div class="qtext">${EGL.escapeHtml(currentQ.text)}</div>
+      ${isGraded ? `<div class="options" id="opts">${currentQ.options.map((o,i)=>`<button class="option-btn" data-i="${i}">${EGL.escapeHtml(o)}</button>`).join('')}</div>`
+        : `<div style="display:flex; gap:10px; justify-content:center; margin-top:10px;">
+             <button class="btn btn-accent" id="btn-correct">✅ أجاب بشكل جيد</button>
+             <button class="btn btn-outline" id="btn-skip">تخطّي ⏭</button>
+           </div>`}
+    </div>`;
+  if(isGraded){
+    area.querySelectorAll('.option-btn').forEach(btn=>btn.addEventListener('click', ()=>{
+      const i = parseInt(btn.dataset.i);
+      area.querySelectorAll('.option-btn').forEach(b=>b.disabled=true);
+      btn.classList.add(i===currentQ.correctIndex?'correct':'wrong');
+      area.querySelectorAll('.option-btn')[currentQ.correctIndex].classList.add('correct');
+      if(i===currentQ.correctIndex){ sb.addScore(sb.activeIndex(), currentQ.points||10); EGL.beep('correct'); EGL.confetti(30); }
+      else EGL.beep('wrong');
+      sb.nextTurn();
+    }));
+  } else {
+    area.querySelector('#btn-correct').addEventListener('click', ()=>{ sb.addScore(sb.activeIndex(), 10); EGL.beep('correct'); EGL.confetti(30); sb.nextTurn(); });
+    area.querySelector('#btn-skip').addEventListener('click', ()=>{ sb.nextTurn(); });
+  }
+}
+
+init();
+</script>
+</body>
+</html>

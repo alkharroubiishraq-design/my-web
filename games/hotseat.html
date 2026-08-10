@@ -1,0 +1,128 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>الكرسي الساخن — ساحة الصف</title>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>🪑</text></svg>">
+<link rel="stylesheet" href="../css/style.css">
+<style>
+  .flip-card{ width:100%; max-width:640px; min-height:260px; perspective:1000px; margin: 10px auto; }
+  .flip-inner{ position:relative; width:100%; height:100%; min-height:260px; transition: transform .6s; transform-style:preserve-3d; }
+  .flip-inner.flipped{ transform: rotateY(180deg); }
+  .flip-face{ position:absolute; inset:0; border-radius: var(--radius); display:flex; align-items:center; justify-content:center; backface-visibility:hidden; padding:30px; text-align:center; box-shadow: var(--shadow); }
+  .flip-back{ background: var(--grad-1); font-size:4rem; }
+  .flip-front{ background: var(--surface); transform: rotateY(180deg); font-size:1.5rem; font-weight:800; border:1px solid rgba(255,255,255,.08); }
+  .picker-name{ font-size:2.2rem; font-weight:900; padding: 20px; }
+</style>
+</head>
+<body>
+<nav class="topnav"><div class="container">
+  <a class="brand" href="../index.html"><span class="logo">🎲</span> ساحة الصف</a>
+  <div class="navlinks"><a href="../index.html">الرئيسية</a><a href="../index.html#games">الألعاب</a><a href="../questions.html">بنك الأسئلة</a></div>
+</div></nav>
+
+<div class="game-shell">
+  <div class="game-header container">
+    <h1>🪑 الكرسي الساخن</h1>
+    <p>بطاقات تعارف وكسر جمود عشوائية — بدون فوز أو خسارة، فقط مرح وحديث صادق!</p>
+  </div>
+  <div class="game-stage container" id="stage"></div>
+</div>
+
+<script src="../js/common.js"></script>
+<script>
+let cardsPool, names = [], usedCards = [];
+
+function init(){
+  const stage = document.getElementById('stage');
+  stage.innerHTML = `<div class="empty-state"><div class="emoji">🪑</div><h3>هيّئ الجلسة</h3><p>اختر بنك البطاقات (مثل بطاقات كسر الجمود) وابدأ.</p>
+    <button class="btn btn-primary" id="btn-setup">ابدأ الإعداد 🎮</button></div>`;
+  document.getElementById('btn-setup').addEventListener('click', openSetup);
+  openSetup();
+}
+
+function openSetup(){
+  const banks = EGL.getBanks().filter(b=>b.questions.length);
+  const overlay = document.createElement('div');
+  overlay.className = 'modal-overlay';
+  overlay.innerHTML = `
+    <div class="modal">
+      <h2>إعداد الكرسي الساخن 🪑</h2>
+      <label>بنك البطاقات</label>
+      <select id="hs-bank">${banks.map(b=>`<option value="${b.id}">${b.icon||'📚'} ${EGL.escapeHtml(b.name)}</option>`).join('')}</select>
+      <label>أسماء الطلاب (اختياري — سطر لكل اسم لاستخدام المُنتقي العشوائي)</label>
+      <textarea id="hs-names" placeholder="أحمد
+سارة
+ليان
+..."></textarea>
+      <div class="modal-actions">
+        <button class="btn btn-outline" id="hs-cancel">إلغاء</button>
+        <button class="btn btn-primary" id="hs-start">ابدأ 🚀</button>
+      </div>
+    </div>`;
+  document.body.appendChild(overlay);
+  overlay.querySelector('#hs-cancel').addEventListener('click', ()=>overlay.remove());
+  overlay.querySelector('#hs-start').addEventListener('click', ()=>{
+    const bankId = overlay.querySelector('#hs-bank').value;
+    if(!bankId){ EGL.toast('أنشئ بنك أسئلة أولًا'); return; }
+    names = overlay.querySelector('#hs-names').value.split('\n').map(s=>s.trim()).filter(Boolean);
+    const bank = EGL.getBank(bankId);
+    cardsPool = EGL.shuffle(bank.questions);
+    usedCards = [];
+    overlay.remove();
+    startSession();
+  });
+}
+
+function startSession(){
+  const stage = document.getElementById('stage');
+  stage.innerHTML = `
+    <div class="flip-card" id="flip-card">
+      <div class="flip-inner" id="flip-inner">
+        <div class="flip-face flip-back">🪑</div>
+        <div class="flip-face flip-front" id="card-text"></div>
+      </div>
+    </div>
+    <div style="display:flex; gap:12px; flex-wrap:wrap; justify-content:center;">
+      <button class="btn btn-primary" id="btn-next">🔀 بطاقة جديدة</button>
+      ${names.length ? `<button class="btn btn-accent" id="btn-pick">🎯 اختر طالبًا عشوائيًا</button>` : ''}
+      <a class="btn btn-outline" href="../index.html">🏠 الألعاب الأخرى</a>
+    </div>
+    <div id="picker-result"></div>
+  `;
+  document.getElementById('btn-next').addEventListener('click', nextCard);
+  if(names.length) document.getElementById('btn-pick').addEventListener('click', pickStudent);
+  nextCard();
+}
+
+function nextCard(){
+  if(!cardsPool.length){ cardsPool = EGL.shuffle(usedCards); usedCards = []; }
+  const q = cardsPool.pop();
+  usedCards.push(q);
+  const inner = document.getElementById('flip-inner');
+  inner.classList.remove('flipped');
+  document.getElementById('card-text').textContent = q.text;
+  EGL.beep('tick');
+  setTimeout(()=> inner.classList.add('flipped'), 150);
+}
+
+function pickStudent(){
+  const result = document.getElementById('picker-result');
+  let count = 0;
+  const spin = setInterval(()=>{
+    result.innerHTML = `<div class="picker-name">${EGL.escapeHtml(EGL.pick(names))}</div>`;
+    count++;
+    if(count > 14){
+      clearInterval(spin);
+      const finalName = EGL.pick(names);
+      result.innerHTML = `<div class="picker-name">🎉 ${EGL.escapeHtml(finalName)}</div>`;
+      EGL.beep('win'); EGL.confetti(40);
+    }
+  }, 90);
+}
+
+init();
+</script>
+</body>
+</html>

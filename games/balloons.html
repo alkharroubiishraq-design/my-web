@@ -1,0 +1,181 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>فرقعة البالونات — ساحة الصف</title>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>🎈</text></svg>">
+<link rel="stylesheet" href="../css/style.css">
+<style>
+  .balloon-field{ position:relative; width:100%; max-width:820px; height:420px; overflow:hidden; margin:0 auto; background: linear-gradient(180deg, rgba(255,255,255,.03), transparent); border-radius: var(--radius); border:1px solid rgba(255,255,255,.06); }
+  .balloon{ position:absolute; bottom:-100px; width:76px; height:96px; border-radius:50% 50% 50% 50%/58% 58% 42% 42%; display:flex; align-items:center; justify-content:center; text-align:center; font-weight:800; color:#fff; font-size:1.7rem; cursor:pointer; box-shadow: inset -8px -8px 16px rgba(0,0,0,.15), 0 6px 14px rgba(0,0,0,.25); animation-name: floatUp; animation-timing-function: linear; animation-iteration-count: infinite; }
+  .balloon::after{ content:''; position:absolute; bottom:-26px; left:50%; width:1px; height:26px; background: rgba(255,255,255,.4); }
+  @keyframes floatUp{ from{ bottom:-110px; } to{ bottom:110%; } }
+  .bpop{ animation: pop .35s forwards; }
+  @keyframes pop{ to{ transform: scale(1.6); opacity:0; } }
+</style>
+</head>
+<body>
+<nav class="topnav"><div class="container">
+  <a class="brand" href="../index.html"><span class="logo">🎲</span> ساحة الصف</a>
+  <div class="navlinks"><a href="../index.html">الرئيسية</a><a href="../index.html#games">الألعاب</a><a href="../questions.html">بنك الأسئلة</a></div>
+</div></nav>
+
+<div class="game-shell">
+  <div class="game-header container">
+    <h1>🎈 فرقعة البالونات</h1>
+    <p>افرقع أكبر عدد من البالونات بالإجابة الصحيحة قبل نفاد الوقت!</p>
+  </div>
+  <div class="game-stage container" id="stage"></div>
+</div>
+
+<script src="../js/common.js"></script>
+<script>
+const TURN_TIME = 45, BALLOONS_ON_SCREEN = 5;
+const COLORS = ['#7c5cff','#ff5c9e','#21e6c1','#3f8ef0','#f0507a','#35c46a','#f0a93f'];
+let players, scores, turnI, pool, poolIdx, timeLeft, timerInt, busy, activeCount;
+
+function init(){
+  const stage = document.getElementById('stage');
+  stage.innerHTML = `<div class="empty-state"><div class="emoji">🎈</div><h3>هيّئ اللعبة</h3><p>كل لاعب/فريق يأخذ دوره في فرقعة البالونات لمدة ${TURN_TIME} ثانية.</p>
+    <button class="btn btn-primary" id="btn-setup">ابدأ الإعداد 🎮</button></div>`;
+  document.getElementById('btn-setup').addEventListener('click', openSetup);
+  openSetup();
+}
+function openSetup(){
+  EGL.openSetupModal({ title:'إعداد فرقعة البالونات', allowIndividual:true, allowTeams:true, needQuestions:true, qType:['mcq','tf'] }, startGame);
+}
+
+function startGame(cfg){
+  const bank = EGL.getBank(cfg.bankId);
+  const base = bank.questions.filter(q=>q.type==='mcq'||q.type==='tf');
+  if(!base.length){ EGL.toast('لا توجد أسئلة اختيار/صح-خطأ في هذا البنك'); return; }
+  players = cfg.players;
+  scores = players.map(()=>0);
+  turnI = 0;
+  const stage = document.getElementById('stage');
+  stage.innerHTML = `
+    <div id="sb-wrap" class="scoreboard"></div>
+    <div id="turn-info" style="text-align:center; margin-bottom:10px; font-weight:800;"></div>
+    <div class="timer-bar"><div id="timer-fill"></div></div>
+    <div class="balloon-field" id="field"></div>
+    <div id="q-panel" style="width:100%; max-width:820px; margin:16px auto 0;"></div>`;
+  window._sbBalloon = { players, scores };
+  renderScoreboard();
+  window._basePool = base;
+  startTurn();
+}
+
+function renderScoreboard(){
+  const el = document.getElementById('sb-wrap');
+  el.innerHTML = players.map((p,i)=>`
+    <div class="player-chip ${i===turnI?'active':''}">
+      <div style="font-size:1.4rem">${p.emoji}</div>
+      <div class="pname">${EGL.escapeHtml(p.name)}</div>
+      <div class="pscore">${scores[i]}</div>
+    </div>`).join('');
+}
+
+function startTurn(){
+  clearInterval(timerInt);
+  document.getElementById('turn-info').textContent = `🎈 دور: ${players[turnI].name}`;
+  timeLeft = TURN_TIME;
+  updateTimerBar();
+  pool = EGL.shuffle(window._basePool);
+  poolIdx = 0;
+  busy = false;
+  activeCount = 0;
+  document.getElementById('field').innerHTML = '';
+  document.getElementById('q-panel').innerHTML = '';
+  for(let i=0;i<BALLOONS_ON_SCREEN;i++) spawnBalloon();
+  timerInt = setInterval(()=>{
+    timeLeft--; updateTimerBar();
+    if(timeLeft<=0) endTurn();
+  }, 1000);
+}
+
+function updateTimerBar(){
+  document.getElementById('timer-fill').style.width = (timeLeft/TURN_TIME*100)+'%';
+}
+
+function nextPoolQuestion(){
+  if(poolIdx >= pool.length){ pool = EGL.shuffle(pool); poolIdx = 0; }
+  return pool[poolIdx++];
+}
+
+function spawnBalloon(){
+  const field = document.getElementById('field');
+  const q = nextPoolQuestion();
+  const el = document.createElement('div');
+  const id = 'b-' + EGL.uuid();
+  el.className = 'balloon';
+  el.id = id;
+  el.dataset.q = JSON.stringify(q).replace(/'/g,'&#39;');
+  el.style.background = COLORS[Math.floor(Math.random()*COLORS.length)];
+  el.style.left = (5 + Math.random()*80) + '%';
+  const duration = 7 + Math.random()*5;
+  el.style.animationDuration = duration + 's';
+  el.style.animationDelay = (-Math.random()*duration) + 's';
+  el.textContent = '🎈';
+  el.addEventListener('click', () => popBalloon(el, q));
+  field.appendChild(el);
+  activeCount++;
+}
+
+function popBalloon(el, q){
+  if(busy) return;
+  busy = true;
+  const panel = document.getElementById('q-panel');
+  panel.innerHTML = `
+    <div class="qcard">
+      <div class="qtext">${EGL.escapeHtml(q.text)}</div>
+      <div class="options" id="opts">${q.options.map((o,i)=>`<button class="option-btn" data-i="${i}">${EGL.escapeHtml(o)}</button>`).join('')}</div>
+    </div>`;
+  panel.querySelectorAll('.option-btn').forEach(btn=>btn.addEventListener('click', ()=>{
+    const i = parseInt(btn.dataset.i);
+    panel.querySelectorAll('.option-btn').forEach(b=>b.disabled=true);
+    btn.classList.add(i===q.correctIndex?'correct':'wrong');
+    panel.querySelectorAll('.option-btn')[q.correctIndex].classList.add('correct');
+    el.classList.add('bpop');
+    if(i===q.correctIndex){ scores[turnI] += (q.points||10); EGL.beep('correct'); EGL.confetti(16); }
+    else EGL.beep('wrong');
+    renderScoreboard();
+    setTimeout(()=>{
+      el.remove(); activeCount--;
+      panel.innerHTML = '';
+      busy = false;
+      if(timeLeft > 0) spawnBalloon();
+    }, 450);
+  }));
+}
+
+function endTurn(){
+  clearInterval(timerInt);
+  document.getElementById('field').innerHTML = '';
+  document.getElementById('q-panel').innerHTML = '';
+  turnI++;
+  if(turnI >= players.length){ showResults(); return; }
+  renderScoreboard();
+  setTimeout(startTurn, 400);
+}
+
+function showResults(){
+  EGL.confetti(100); EGL.beep('win');
+  const ranking = players.map((p,i)=>({...p, score:scores[i]})).sort((a,b)=>b.score-a.score);
+  const stage = document.getElementById('stage');
+  stage.innerHTML = `<div class="qcard">
+    <div style="font-size:3rem;">🏆</div><h2>انتهت الجولة!</h2>
+    <div class="scoreboard" style="justify-content:center;">
+      ${ranking.map((p,r)=>`<div class="player-chip ${r===0?'active':''}"><div style="font-size:1.4rem;">${r===0?'🥇':r===1?'🥈':r===2?'🥉':p.emoji}</div><div class="pname">${EGL.escapeHtml(p.name)}</div><div class="pscore">${p.score}</div></div>`).join('')}
+    </div>
+    <div style="display:flex; gap:10px; justify-content:center; margin-top:16px;">
+      <button class="btn btn-primary" onclick="location.reload()">🔁 لعب مرة أخرى</button>
+      <a class="btn btn-outline" href="../index.html">🏠 الألعاب الأخرى</a>
+    </div>
+  </div>`;
+}
+
+init();
+</script>
+</body>
+</html>

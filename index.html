@@ -1,0 +1,101 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>ساحة الصف — ألعاب تفاعلية لكسر الجمود والتعلّم</title>
+<meta name="description" content="منصة ألعاب تفاعلية للمعلمين: كسر الجمود، أنشطة إبداعية، وتوليد أسئلة بالذكاء الاصطناعي من موادك التعليمية.">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>🎲</text></svg>">
+<link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+
+<nav class="topnav">
+  <div class="container">
+    <a class="brand" href="index.html"><span class="logo">🎲</span> ساحة الصف</a>
+    <div class="navlinks">
+      <a href="index.html" class="active">الرئيسية</a>
+      <a href="index.html#games">الألعاب</a>
+      <a href="questions.html">بنك الأسئلة</a>
+    </div>
+  </div>
+</nav>
+
+<header class="hero">
+  <div class="container">
+    <span class="badge">🎓 مصمَّمة للمعلمين وللمرشدين التربويين</span>
+    <h1>اكسر الجمود، <span class="grad-text">وفعّل غرفتك الصفية</span> بألعاب تفاعلية</h1>
+    <p>مجموعة كبيرة من الألعاب التعليمية الحماسية — فردية وجماعية، تناسب جميع الأعمار وتصلح للذكور والإناث. ارفع مادتك التعليمية ودع الذكاء الاصطناعي يبني الأسئلة، أو أنشئها بنفسك بسهولة.</p>
+    <div class="hero-actions">
+      <a href="#games" class="btn btn-primary">🎮 استعرض الألعاب</a>
+      <a href="questions.html" class="btn btn-outline">📚 إدارة بنك الأسئلة</a>
+    </div>
+  </div>
+</header>
+
+<section class="section">
+  <div class="container">
+    <div class="features">
+      <div class="feature card"><div class="ico">🤖</div><h3>توليد أسئلة بالذكاء الاصطناعي</h3><p>ارفع ملف أو الصق نص المادة، وسيقوم الذكاء الاصطناعي بإنشاء أسئلة متنوعة تلقائيًا.</p></div>
+      <div class="feature card"><div class="ico">✍️</div><h3>أو صمّم أسئلتك بنفسك</h3><p>تحكّم كامل: أضف أسئلة اختيار من متعدد، صح/خطأ، أو أسئلة مفتوحة للنقاش.</p></div>
+      <div class="feature card"><div class="ico">👥</div><h3>فردي أو جماعي</h3><p>كل لعبة تدعم اللعب الفردي أو تقسيم الطلاب إلى فرق متنافسة.</p></div>
+      <div class="feature card"><div class="ico">🎉</div><h3>حماس وتشويق</h3><p>مؤقتات، عجلة حظ، صوت، احتفالات بصرية — تجربة ممتعة لجميع الأعمار.</p></div>
+    </div>
+  </div>
+</section>
+
+<section class="section" id="games">
+  <div class="container">
+    <div class="section-title">
+      <h2>🎮 مكتبة الألعاب</h2>
+      <p>اختر لعبة وابدأ خلال ثوانٍ</p>
+    </div>
+    <div class="games-grid" id="games-grid"></div>
+  </div>
+</section>
+
+<section class="section">
+  <div class="container card" style="text-align:center; background: var(--grad-1);">
+    <h2 style="margin-bottom:6px;">جاهز تبدأ؟</h2>
+    <p style="color:#fff; opacity:.9;">جهّز بنك أسئلة خاص بمادتك أو استخدم البنوك التجريبية المتوفرة فورًا.</p>
+    <a href="questions.html" class="btn btn-gold">إدارة بنك الأسئلة 📚</a>
+  </div>
+</section>
+
+<footer>
+  <div class="container">
+    <p>صُممت بحب لأجل معلمين ومعلمات يصنعون فرقًا 💜 — جميع البيانات تُخزَّن على جهازك فقط.</p>
+  </div>
+</footer>
+
+<script src="js/common.js"></script>
+<script>
+EGL.seedIfEmpty();
+
+const GAMES = [
+  { href: 'games/quiz.html', cls: 'gc-1', emoji: '⚡', title: 'اختبار البرق', desc: 'أسئلة اختيار من متعدد بمؤقت زمني، فردي أو بالفرق، لمن يجيب أسرع وأصح.', tags: ['فردي', 'فرق', 'سرعة'] },
+  { href: 'games/wheel.html', cls: 'gc-2', emoji: '🎡', title: 'عجلة الحظ', desc: 'أدر العجلة لاختيار فئة السؤال أو تحدٍ عشوائي أو الفريق التالي في الدور.', tags: ['كسر جمود', 'الكل'] },
+  { href: 'games/team-battle.html', cls: 'gc-3', emoji: '🏆', title: 'معركة الفرق', desc: 'لوحة فئات ونقاط بأسلوب المسابقات التلفزيونية — فريقان يتنافسان لجمع أعلى نقاط.', tags: ['جماعي', 'تنافسي'] },
+  { href: 'games/memory.html', cls: 'gc-4', emoji: '🧠', title: 'لعبة الذاكرة', desc: 'اقلب البطاقات وطابق كل سؤال مع إجابته الصحيحة قبل نفاد الوقت.', tags: ['فردي', 'أزواج', 'تركيز'] },
+  { href: 'games/race.html', cls: 'gc-5', emoji: '🏁', title: 'سباق الإجابات', desc: 'كل إجابة صحيحة تدفع لاعبك للأمام على مسار السباق — أول من يصل يفوز!', tags: ['جماعي', 'حماسي'] },
+  { href: 'games/balloons.html', cls: 'gc-6', emoji: '🎈', title: 'فرقعة البالونات', desc: 'افرقع أكبر عدد من البالونات بالإجابة الصحيحة قبل نفاد الوقت.', tags: ['فردي', 'فرق', 'سرعة'] },
+  { href: 'games/hotseat.html', cls: 'gc-7', emoji: '🪑', title: 'الكرسي الساخن', desc: 'بطاقات تعارف وكسر جمود عشوائية بدون فوز أو خسارة — مثالية لبداية الحصة.', tags: ['كسر جمود', 'الكل'] },
+  { href: 'games/millionaire.html', cls: 'gc-8', emoji: '💎', title: 'سلّم النجاح', desc: 'سلّم أسئلة متصاعد الصعوبة بوسائل مساعدة — إلى أين ستصل؟', tags: ['فردي', 'فرق', 'تحدي'] },
+];
+
+document.getElementById('games-grid').innerHTML = GAMES.map(g => `
+  <a class="game-card ${g.cls}" href="${g.href}">
+    <div>
+      <div class="emoji">${g.emoji}</div>
+      <h3>${g.title}</h3>
+      <p>${g.desc}</p>
+    </div>
+    <div>
+      <div class="tags">${g.tags.map(t => `<span class="tag">${t}</span>`).join('')}</div>
+      <span class="btn btn-accent btn-sm play-btn">العب الآن ▶</span>
+    </div>
+  </a>
+`).join('');
+</script>
+</body>
+</html>

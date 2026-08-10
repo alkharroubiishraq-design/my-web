@@ -1,0 +1,211 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>سلّم النجاح — ساحة الصف</title>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>💎</text></svg>">
+<link rel="stylesheet" href="../css/style.css">
+<style>
+  .ladder-dots{ display:flex; gap:6px; justify-content:center; margin-bottom:18px; flex-wrap:wrap; max-width:760px; }
+  .ladder-dot{ width:34px; height:34px; border-radius:10px; background: var(--surface-2); display:flex; align-items:center; justify-content:center; font-size:.7rem; font-weight:800; color: var(--text-dim); }
+  .ladder-dot.done{ background: var(--success); color:#06331a; }
+  .ladder-dot.current{ background: var(--accent-2); color:#332400; box-shadow: 0 0 0 3px rgba(255,210,63,.25); }
+  .lifelines{ display:flex; gap:10px; justify-content:center; margin-top:14px; }
+</style>
+</head>
+<body>
+<nav class="topnav"><div class="container">
+  <a class="brand" href="../index.html"><span class="logo">🎲</span> ساحة الصف</a>
+  <div class="navlinks"><a href="../index.html">الرئيسية</a><a href="../index.html#games">الألعاب</a><a href="../questions.html">بنك الأسئلة</a></div>
+</div></nav>
+
+<div class="game-shell">
+  <div class="game-header container">
+    <h1>💎 سلّم النجاح</h1>
+    <p>أسئلة متصاعدة الصعوبة ووسيلتا مساعدة — إلى أين ستصل؟</p>
+  </div>
+  <div class="game-stage container" id="stage"></div>
+</div>
+
+<script src="../js/common.js"></script>
+<script>
+const LADDER_POINTS = [10,20,30,50,80,120,180,250,350,500];
+let ladder, players, results, curPlayer, curLevel, lifelines, removedOpts;
+
+function init(){
+  const stage = document.getElementById('stage');
+  stage.innerHTML = `<div class="empty-state"><div class="emoji">💎</div><h3>هيّئ اللعبة</h3><p>كل لاعب/فريق يتسلّق نفس السلّم بدوره الخاص ووسيلتي مساعدة.</p>
+    <button class="btn btn-primary" id="btn-setup">ابدأ الإعداد 🎮</button></div>`;
+  document.getElementById('btn-setup').addEventListener('click', openSetup);
+  openSetup();
+}
+function openSetup(){
+  EGL.openSetupModal({ title:'إعداد سلّم النجاح', allowIndividual:true, allowTeams:true, needQuestions:true, qType:['mcq'] }, startGame);
+}
+
+function startGame(cfg){
+  const bank = EGL.getBank(cfg.bankId);
+  const mcq = bank.questions.filter(q=>q.type==='mcq');
+  if(mcq.length < 5){ EGL.toast('تحتاج هذه اللعبة 5 أسئلة اختيار من متعدد على الأقل'); return; }
+  const easy = EGL.shuffle(mcq.filter(q=>q.difficulty==='easy'));
+  const med = EGL.shuffle(mcq.filter(q=>q.difficulty==='medium'));
+  const hard = EGL.shuffle(mcq.filter(q=>q.difficulty==='hard'));
+  const ordered = [...easy, ...med, ...hard];
+  const fallback = EGL.shuffle(mcq);
+  ladder = [];
+  const wanted = Math.min(10, mcq.length);
+  for(let i=0;i<wanted;i++) ladder.push(ordered[i] || fallback[i]);
+
+  players = cfg.players;
+  results = players.map(()=>0);
+  curPlayer = 0;
+  beginPlayerTurn();
+}
+
+function beginPlayerTurn(){
+  curLevel = 0;
+  lifelines = { fifty: true, audience: true };
+  const stage = document.getElementById('stage');
+  stage.innerHTML = `
+    <div class="qcard" style="text-align:center;">
+      <div style="font-size:2.4rem;">${players[curPlayer].emoji}</div>
+      <h2>دور: ${EGL.escapeHtml(players[curPlayer].name)}</h2>
+      <p>استعد لتسلّق السلّم! لديك وسيلتا مساعدة.</p>
+      <button class="btn btn-primary" id="btn-go">ابدأ التسلّق 🚀</button>
+    </div>`;
+  document.getElementById('btn-go').addEventListener('click', renderLevel);
+}
+
+function renderLevel(){
+  removedOpts = [];
+  const q = ladder[curLevel];
+  const stage = document.getElementById('stage');
+  stage.innerHTML = `
+    <div class="ladder-dots" id="dots"></div>
+    <div class="qcard">
+      <div class="qmeta">
+        <span class="badge">${EGL.escapeHtml(players[curPlayer].name)}</span>
+        <span class="badge">المستوى ${curLevel+1} / ${ladder.length}</span>
+        <span class="badge">💰 ${LADDER_POINTS[curLevel]} نقطة</span>
+      </div>
+      <div class="qtext">${EGL.escapeHtml(q.text)}</div>
+      <div class="options" id="opts">${q.options.map((o,i)=>`<button class="option-btn" data-i="${i}">${EGL.escapeHtml(o)}</button>`).join('')}</div>
+      <div class="lifelines">
+        <button class="btn btn-outline btn-sm" id="ll-fifty" ${!lifelines.fifty?'disabled':''}>✂️ 50:50</button>
+        <button class="btn btn-outline btn-sm" id="ll-audience" ${!lifelines.audience?'disabled':''}>🗣 تلميح الجمهور</button>
+      </div>
+      <div id="audience-chart" style="margin-top:14px;"></div>
+    </div>`;
+  renderDots();
+  document.getElementById('opts').querySelectorAll('.option-btn').forEach(btn=>btn.addEventListener('click', ()=>answer(parseInt(btn.dataset.i), q)));
+  document.getElementById('ll-fifty').addEventListener('click', useFifty);
+  document.getElementById('ll-audience').addEventListener('click', useAudience);
+}
+
+function renderDots(){
+  document.getElementById('dots').innerHTML = ladder.map((_,i)=>`
+    <div class="ladder-dot ${i<curLevel?'done':''} ${i===curLevel?'current':''}">${i+1}</div>
+  `).join('');
+}
+
+function useFifty(){
+  if(!lifelines.fifty) return;
+  lifelines.fifty = false;
+  document.getElementById('ll-fifty').disabled = true;
+  const q = ladder[curLevel];
+  const wrongIdx = [0,1,2,3].filter(i=>i!==q.correctIndex && !removedOpts.includes(i));
+  const toRemove = EGL.shuffle(wrongIdx).slice(0,2);
+  toRemove.forEach(i=>{
+    const btn = document.querySelectorAll('.option-btn')[i];
+    btn.disabled = true;
+    btn.style.opacity = '.25';
+    removedOpts.push(i);
+  });
+  EGL.beep('tick');
+}
+
+function useAudience(){
+  if(!lifelines.audience) return;
+  lifelines.audience = false;
+  document.getElementById('ll-audience').disabled = true;
+  const q = ladder[curLevel];
+  const percents = [0,1,2,3].map(()=> Math.random());
+  const correctBoost = 0.4 + Math.random()*0.3;
+  percents[q.correctIndex] += correctBoost * 3;
+  removedOpts.forEach(i=> percents[i] = 0);
+  const sum = percents.reduce((a,b)=>a+b,0);
+  const normalized = percents.map(p=>Math.round(p/sum*100));
+  const chart = document.getElementById('audience-chart');
+  chart.innerHTML = `<div style="display:flex; gap:8px; align-items:flex-end; justify-content:center; height:80px;">
+    ${normalized.map((p,i)=> removedOpts.includes(i) ? '' : `
+      <div style="display:flex; flex-direction:column; align-items:center; gap:4px;">
+        <div style="font-size:.75rem; font-weight:700;">${p}%</div>
+        <div style="width:34px; height:${Math.max(6,p*0.7)}px; background: var(--grad-2); border-radius:6px 6px 0 0;"></div>
+        <div style="font-size:.7rem;">${String.fromCharCode(65+i)}</div>
+      </div>`).join('')}
+  </div>`;
+  EGL.beep('tick');
+}
+
+function answer(i, q){
+  const opts = document.querySelectorAll('.option-btn');
+  opts.forEach(b=>b.disabled = true);
+  opts[i].classList.add(i===q.correctIndex?'correct':'wrong');
+  opts[q.correctIndex].classList.add('correct');
+  document.getElementById('ll-fifty').disabled = true;
+  document.getElementById('ll-audience').disabled = true;
+  if(i === q.correctIndex){
+    EGL.beep('correct');
+    curLevel++;
+    if(curLevel >= ladder.length){
+      results[curPlayer] = LADDER_POINTS[LADDER_POINTS.length-1];
+      EGL.confetti(90);
+      setTimeout(()=>endPlayerTurn(true), 1400);
+    } else {
+      EGL.confetti(20);
+      setTimeout(renderLevel, 1400);
+    }
+  } else {
+    EGL.beep('wrong');
+    results[curPlayer] = curLevel > 0 ? LADDER_POINTS[curLevel-1] : 0;
+    setTimeout(()=>endPlayerTurn(false), 1600);
+  }
+}
+
+function endPlayerTurn(won){
+  const stage = document.getElementById('stage');
+  stage.innerHTML = `
+    <div class="qcard" style="text-align:center;">
+      <div style="font-size:2.6rem;">${won?'👑':'🎈'}</div>
+      <h2>${won?'وصلت للقمة!':'انتهى دور ' + EGL.escapeHtml(players[curPlayer].name)}</h2>
+      <p>النقاط المكتسبة: <strong style="color:var(--accent);">${results[curPlayer]}</strong></p>
+      <button class="btn btn-primary" id="btn-continue">متابعة</button>
+    </div>`;
+  document.getElementById('btn-continue').addEventListener('click', ()=>{
+    curPlayer++;
+    if(curPlayer >= players.length) showFinalResults();
+    else beginPlayerTurn();
+  });
+}
+
+function showFinalResults(){
+  EGL.confetti(100); EGL.beep('win');
+  const ranking = players.map((p,i)=>({...p, score: results[i]})).sort((a,b)=>b.score-a.score);
+  const stage = document.getElementById('stage');
+  stage.innerHTML = `<div class="qcard">
+    <div style="font-size:3rem;">🏆</div><h2>النتائج النهائية</h2>
+    <div class="scoreboard" style="justify-content:center;">
+      ${ranking.map((p,r)=>`<div class="player-chip ${r===0?'active':''}"><div style="font-size:1.4rem;">${r===0?'🥇':r===1?'🥈':r===2?'🥉':p.emoji}</div><div class="pname">${EGL.escapeHtml(p.name)}</div><div class="pscore">${p.score}</div></div>`).join('')}
+    </div>
+    <div style="display:flex; gap:10px; justify-content:center; margin-top:16px;">
+      <button class="btn btn-primary" onclick="location.reload()">🔁 لعب مرة أخرى</button>
+      <a class="btn btn-outline" href="../index.html">🏠 الألعاب الأخرى</a>
+    </div>
+  </div>`;
+}
+
+init();
+</script>
+</body>
+</html>
