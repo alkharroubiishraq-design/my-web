@@ -1,0 +1,144 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>مصنع الفرز — ساحة الصف</title>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>🏭</text></svg>">
+<link rel="stylesheet" href="../css/style.css">
+<style>
+  .factory-field{ position:relative; width:100%; max-width:760px; height:320px; margin: 14px auto 0; overflow:hidden;
+    background: linear-gradient(180deg, var(--bg-soft), var(--surface)); border-radius: var(--radius) var(--radius) 0 0; border:1px solid rgba(255,255,255,.08); border-bottom:none; }
+  .falling-item{ position:absolute; top:-50px; right:calc(50% - 60px); width:120px; text-align:center; padding:10px 8px; border-radius:12px;
+    background: var(--surface-2); font-weight:800; animation-name: fallDown2; animation-timing-function: linear; animation-fill-mode: forwards; }
+  @keyframes fallDown2{ to{ top: 92%; } }
+  .bins{ display:grid; grid-template-columns:1fr 1fr; gap:4px; max-width:760px; margin:0 auto; }
+  .bin-btn{ padding:20px 10px; font-weight:900; font-size:1.05rem; border:none; cursor:pointer; color:#fff; }
+  .bin-btn:first-child{ border-radius: 0 0 0 var(--radius); background: var(--grad-2); }
+  .bin-btn:last-child{ border-radius: 0 0 var(--radius) 0; background: var(--grad-3); color:#2a1a00; }
+</style>
+</head>
+<body>
+<nav class="topnav"><div class="container">
+  <a class="brand" href="../index.html"><span class="logo">🎲</span> ساحة الصف</a>
+  <div class="navlinks"><a href="../index.html">الرئيسية</a><a href="../index.html#games">الألعاب</a><a href="../questions.html">بنك الأسئلة</a></div>
+</div></nav>
+
+<div class="game-shell">
+  <div class="game-header container">
+    <h1>🏭 مصنع الفرز</h1>
+    <p>عناصر تتساقط من الأعلى — افرزوها في الصندوق الصحيح قبل أن تصل للأرض! (يحتاج أسئلة اختيار من متعدد بخيارين فقط)</p>
+  </div>
+  <div class="game-stage container" id="stage"></div>
+</div>
+
+<script src="../js/common.js"></script>
+<script>
+let sb, players, activeI, questions, qIdx, roundStart, resolved;
+
+function init(){
+  const stage = document.getElementById('stage');
+  stage.innerHTML = `<div class="empty-state"><div class="emoji">🏭</div><h3>هيّئ اللعبة</h3><p>أنشئ أسئلة اختيار من متعدد بخيارين فقط (مثل: معدود / غير معدود)، واجعل نص السؤال هو العنصر المطلوب فرزه.</p>
+    <button class="btn btn-primary" id="btn-setup">ابدأ الإعداد 🎮</button></div>`;
+  document.getElementById('btn-setup').addEventListener('click', openSetup);
+  openSetup();
+}
+function openSetup(){
+  EGL.openSetupModal({ title:'إعداد مصنع الفرز', allowIndividual:true, allowTeams:true, needQuestions:true, qType:['mcq'] }, startGame);
+}
+
+function startGame(cfg){
+  const bank = EGL.getBank(cfg.bankId);
+  questions = EGL.shuffle(bank.questions.filter(q=>q.type==='mcq' && q.options.length===2));
+  if(!questions.length){ EGL.toast('تحتاج هذه اللعبة أسئلة اختيار من متعدد بخيارين فقط بالضبط'); return; }
+  questions = questions.slice(0, 12);
+  players = cfg.players;
+  activeI = 0; qIdx = 0;
+  const stage = document.getElementById('stage');
+  stage.innerHTML = `<div id="sb-wrap" class="scoreboard"></div><div id="progress-badge" class="badge" style="display:block; text-align:center; margin-bottom:6px;"></div><div id="game-area"></div>`;
+  sb = new EGL.Scoreboard(document.getElementById('sb-wrap'), players);
+  nextQuestion();
+}
+
+function nextQuestion(){
+  if(qIdx >= questions.length){ showResults(); return; }
+  document.getElementById('progress-badge').textContent = `🏭 عنصر ${qIdx+1} / ${questions.length} — دور: ${players[activeI].name}`;
+  renderItem();
+}
+
+function renderItem(){
+  resolved = false;
+  const q = questions[qIdx];
+  const area = document.getElementById('game-area');
+  area.innerHTML = `
+    <div class="factory-field" id="field"></div>
+    <div class="bins" id="bins">
+      <button class="bin-btn" data-i="0">${EGL.escapeHtml(q.options[0])}</button>
+      <button class="bin-btn" data-i="1">${EGL.escapeHtml(q.options[1])}</button>
+    </div>`;
+  const field = document.getElementById('field');
+  const el = document.createElement('div');
+  el.className = 'falling-item';
+  el.textContent = q.text;
+  el.style.animationDuration = '6s';
+  field.appendChild(el);
+  window._fallEl = el;
+  el.addEventListener('animationend', () => missItem());
+
+  document.querySelectorAll('.bin-btn').forEach(btn=>btn.addEventListener('click', ()=> pickBin(parseInt(btn.dataset.i), q)));
+  roundStart = performance.now();
+}
+
+function pickBin(i, q){
+  if(resolved) return;
+  resolved = true;
+  window._fallEl.style.animationPlayState = 'paused';
+  document.querySelectorAll('.bin-btn').forEach(b=>b.disabled=true);
+  if(i === q.correctIndex){
+    const elapsed = (performance.now()-roundStart)/1000;
+    const bonus = Math.max(0, Math.round(6-elapsed));
+    sb.addScore(activeI, (q.points||10)+bonus);
+    window._fallEl.style.background = 'rgba(43,224,138,.5)';
+    EGL.beep('correct'); EGL.confetti(25);
+  } else {
+    window._fallEl.style.background = 'rgba(255,92,92,.5)';
+    EGL.beep('wrong');
+  }
+  setTimeout(advance, 1200);
+}
+
+function missItem(){
+  if(resolved) return;
+  resolved = true;
+  document.querySelectorAll('.bin-btn').forEach(b=>b.disabled=true);
+  EGL.beep('wrong');
+  EGL.toast('⏱ وصل العنصر للأرض بدون فرز!');
+  setTimeout(advance, 1000);
+}
+
+function advance(){
+  activeI = (activeI+1) % players.length;
+  qIdx++;
+  nextQuestion();
+}
+
+function showResults(){
+  EGL.confetti(100); EGL.beep('win');
+  const ranking = sb.ranking();
+  const stage = document.getElementById('stage');
+  stage.innerHTML = `<div class="qcard">
+    <div style="font-size:3rem;">🏆</div><h2>أُغلق المصنع!</h2>
+    <div class="scoreboard" style="justify-content:center;">
+      ${ranking.map((p,r)=>`<div class="player-chip ${r===0?'active':''}"><div style="font-size:1.4rem;">${r===0?'🥇':r===1?'🥈':r===2?'🥉':p.emoji}</div><div class="pname">${EGL.escapeHtml(p.name)}</div><div class="pscore">${p.score}</div></div>`).join('')}
+    </div>
+    <div style="display:flex; gap:10px; justify-content:center; margin-top:16px;">
+      <button class="btn btn-primary" onclick="location.reload()">🔁 لعب مرة أخرى</button>
+      <a class="btn btn-outline" href="../index.html">🏠 الألعاب الأخرى</a>
+    </div>
+  </div>`;
+}
+
+init();
+</script>
+</body>
+</html>

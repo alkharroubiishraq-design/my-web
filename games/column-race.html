@@ -1,0 +1,162 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>سباق الأعمدة — ساحة الصف</title>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>⚡</text></svg>">
+<link rel="stylesheet" href="../css/style.css">
+<style>
+  .cr-zones{ display:grid; grid-template-columns:1fr 1fr; gap:16px; width:100%; max-width:900px; margin:14px auto; }
+  .cr-zone{ border-radius: var(--radius); padding:14px; box-shadow: var(--shadow); border:2px solid rgba(255,255,255,.08); }
+  .cr-zone h3{ text-align:center; margin:0 0 10px; }
+  .cr-cols{ display:grid; grid-template-columns:1fr 1fr; gap:8px; }
+  .cr-item{ background: var(--surface-2); border-radius:10px; padding:9px 6px; text-align:center; font-size:.82rem; font-weight:700; cursor:pointer; border:2px solid transparent; min-height:38px; display:flex; align-items:center; justify-content:center; }
+  .cr-item.selected{ border-color: var(--accent-2); }
+  .cr-item.matched{ background: rgba(43,224,138,.3); border-color: var(--success); cursor:default; opacity:.6; }
+  .cr-item.wrong-flash{ background: rgba(255,92,92,.4); }
+  .cr-zone.winner{ border-color: var(--success); box-shadow: 0 0 0 4px rgba(43,224,138,.3); }
+</style>
+</head>
+<body>
+<nav class="topnav"><div class="container">
+  <a class="brand" href="../index.html"><span class="logo">🎲</span> ساحة الصف</a>
+  <div class="navlinks"><a href="../index.html">الرئيسية</a><a href="../index.html#games">الألعاب</a><a href="../questions.html">بنك الأسئلة</a></div>
+</div></nav>
+
+<div class="game-shell">
+  <div class="game-header container">
+    <h1>⚡ سباق الأعمدة</h1>
+    <p>فريقان يتسابقان بنفس اللحظة على ربط كل مصطلح بمعناه الصحيح — أول من يُكمل يفوز!</p>
+  </div>
+  <div class="game-stage container" id="stage"></div>
+</div>
+
+<script src="../js/common.js"></script>
+<script>
+const PAIRS_PER_ROUND = 5, ROUNDS = 3;
+let players, scores, pool, round, zoneState, roundStart, roundOver;
+
+function init(){
+  const stage = document.getElementById('stage');
+  stage.innerHTML = `<div class="empty-state"><div class="emoji">⚡</div><h3>هيّئ اللعبة</h3><p>لعبة فريقين (2 فقط)، تحتاج أسئلة ذات إجابات نصية واضحة (اختيار من متعدد أو صح/خطأ).</p>
+    <button class="btn btn-primary" id="btn-setup">ابدأ الإعداد 🎮</button></div>`;
+  document.getElementById('btn-setup').addEventListener('click', openSetup);
+  openSetup();
+}
+function openSetup(){
+  EGL.openSetupModal({ title:'إعداد سباق الأعمدة', allowIndividual:false, allowTeams:true, needQuestions:true, minPlayers:2, maxPlayers:2 }, startGame);
+}
+
+function startGame(cfg){
+  const bank = EGL.getBank(cfg.bankId);
+  const eligible = bank.questions.filter(q => q.answerText && q.answerText.trim() && q.answerText.trim() !== q.text.trim());
+  if(eligible.length < PAIRS_PER_ROUND){ EGL.toast(`تحتاج هذه اللعبة ${PAIRS_PER_ROUND} أسئلة على الأقل ذات إجابات واضحة`); return; }
+  pool = EGL.shuffle(eligible);
+  players = cfg.players;
+  scores = [0,0];
+  round = 0;
+  const stage = document.getElementById('stage');
+  stage.innerHTML = `<div id="round-badge" class="badge" style="display:block; text-align:center; margin-bottom:6px;"></div><div id="game-area"></div>`;
+  nextRound();
+}
+
+function nextRound(){
+  round++;
+  if(round > ROUNDS || pool.length < PAIRS_PER_ROUND){ showResults(); return; }
+  document.getElementById('round-badge').textContent = `⚡ الجولة ${round} / ${ROUNDS}`;
+  renderRound();
+}
+
+function renderRound(){
+  const pairs = pool.splice(0, PAIRS_PER_ROUND);
+  roundOver = false;
+  zoneState = [0,1].map(()=>({ matched:0, selectedTerm:null }));
+  const area = document.getElementById('game-area');
+  area.innerHTML = `<div class="cr-zones" id="cr-zones"></div>`;
+  const zonesEl = document.getElementById('cr-zones');
+  zonesEl.innerHTML = [0,1].map(z=>`
+    <div class="cr-zone" id="cr-zone-${z}">
+      <h3>${players[z].emoji} ${EGL.escapeHtml(players[z].name)} — ${scores[z]} نقطة</h3>
+      <div class="cr-cols">
+        <div id="cr-terms-${z}"></div>
+        <div id="cr-meanings-${z}"></div>
+      </div>
+    </div>`).join('');
+  [0,1].forEach(z => setupZone(z, pairs));
+  roundStart = performance.now();
+}
+
+function setupZone(z, pairs){
+  const terms = EGL.shuffle(pairs.map(q=>q.text));
+  const meanings = EGL.shuffle(pairs.map(q=>q.answerText));
+  const termsWrap = document.getElementById(`cr-terms-${z}`);
+  const meaningsWrap = document.getElementById(`cr-meanings-${z}`);
+  termsWrap.innerHTML = terms.map(t=>`<div class="cr-item" data-role="term" data-v="${EGL.escapeHtml(t)}">${EGL.escapeHtml(t)}</div>`).join('');
+  meaningsWrap.innerHTML = meanings.map(m=>`<div class="cr-item" data-role="meaning" data-v="${EGL.escapeHtml(m)}">${EGL.escapeHtml(m)}</div>`).join('');
+  const pairMap = {};
+  pairs.forEach(q => pairMap[q.text] = q.answerText);
+  window['_crPairMap'+z] = pairMap;
+  termsWrap.querySelectorAll('.cr-item').forEach(el=>el.addEventListener('click', ()=>selectTerm(z, el)));
+  meaningsWrap.querySelectorAll('.cr-item').forEach(el=>el.addEventListener('click', ()=>selectMeaning(z, el, pairs.length)));
+}
+
+function selectTerm(z, el){
+  if(roundOver || el.classList.contains('matched')) return;
+  document.querySelectorAll(`#cr-terms-${z} .cr-item`).forEach(x=>x.classList.remove('selected'));
+  el.classList.add('selected');
+  zoneState[z].selectedTerm = el.dataset.v;
+}
+
+function selectMeaning(z, el, total){
+  if(roundOver || el.classList.contains('matched') || !zoneState[z].selectedTerm) return;
+  const term = zoneState[z].selectedTerm;
+  const pairMap = window['_crPairMap'+z];
+  if(pairMap[term] === el.dataset.v){
+    el.classList.add('matched');
+    document.querySelector(`#cr-terms-${z} .cr-item[data-v="${CSS.escape(term)}"]`)?.classList.add('matched');
+    zoneState[z].selectedTerm = null;
+    zoneState[z].matched++;
+    EGL.beep('tick');
+    if(zoneState[z].matched >= total) finishZone(z);
+  } else {
+    el.classList.add('wrong-flash');
+    EGL.beep('wrong');
+    setTimeout(()=> el.classList.remove('wrong-flash'), 350);
+    zoneState[z].selectedTerm = null;
+    document.querySelectorAll(`#cr-terms-${z} .cr-item`).forEach(x=>x.classList.remove('selected'));
+  }
+}
+
+function finishZone(z){
+  if(roundOver) return;
+  roundOver = true;
+  const elapsed = (performance.now()-roundStart)/1000;
+  const bonus = Math.max(0, Math.round(20-elapsed));
+  scores[z] += 20 + bonus;
+  document.getElementById('cr-zone-'+z).classList.add('winner');
+  EGL.beep('win'); EGL.confetti(80);
+  EGL.toast(`🏆 ${players[z].name} أنهى العمود أولًا! +${20+bonus}`);
+  setTimeout(nextRound, 2000);
+}
+
+function showResults(){
+  EGL.confetti(100); EGL.beep('win');
+  const ranking = [0,1].map(i=>({...players[i], score:scores[i]})).sort((a,b)=>b.score-a.score);
+  const stage = document.getElementById('stage');
+  stage.innerHTML = `<div class="qcard">
+    <div style="font-size:3rem;">🏆</div><h2>انتهى السباق!</h2>
+    <div class="scoreboard" style="justify-content:center;">
+      ${ranking.map((p,r)=>`<div class="player-chip ${r===0?'active':''}"><div style="font-size:1.4rem;">${r===0?'🥇':'🥈'}</div><div class="pname">${EGL.escapeHtml(p.name)}</div><div class="pscore">${p.score}</div></div>`).join('')}
+    </div>
+    <div style="display:flex; gap:10px; justify-content:center; margin-top:16px;">
+      <button class="btn btn-primary" onclick="location.reload()">🔁 لعب مرة أخرى</button>
+      <a class="btn btn-outline" href="../index.html">🏠 الألعاب الأخرى</a>
+    </div>
+  </div>`;
+}
+
+init();
+</script>
+</body>
+</html>
