@@ -1,0 +1,20 @@
+// قواعد أمان Firestore لمنصة "ساحة الصف" — ميزة اللعب المباشر
+//
+// كيفية التطبيق:
+// 1. افتح https://console.firebase.google.com واختر مشروعك
+// 2. من القائمة الجانبية: Build → Firestore Database → تبويب "Rules"
+// 3. الصق محتوى هذا الملف كاملًا، ثم اضغط "Publish"
+//
+// ملاحظة: القراءة/الكتابة مفتوحة لأي شخص يعرف كود الغرفة (4 أرقام) فقط
+// ضمن مجموعة /rooms — لا يوجد بيانات حساسة (فقط أسماء وأنشطة صفية مؤقتة)،
+// والإجابات الصحيحة لا تُخزَّن في الوثيقة المشتركة إلا بعد انتهاء كل جولة.
+
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    match /rooms/{roomCode} {
+      allow read, write: if true;
+    }
+    // ترفض أي مسار آخر خارج /rooms افتراضيًا
+  }
+}

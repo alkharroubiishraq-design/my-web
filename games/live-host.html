@@ -1,0 +1,261 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>شاشة العرض المباشر — ساحة الصف</title>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>📡</text></svg>">
+<link rel="stylesheet" href="../css/style.css">
+<style>
+  .conn-badge{ display:inline-block; padding:6px 14px; border-radius:999px; font-size:.8rem; font-weight:800; margin-bottom:14px; }
+  .conn-badge.ok{ background: rgba(43,224,138,.2); color: var(--success); }
+  .conn-badge.bad{ background: rgba(255,92,92,.2); color: var(--danger); }
+  .conn-badge.pending{ background: var(--surface-2); color: var(--text-dim); }
+  .room-code-big{ font-size: 4.5rem; font-weight:900; letter-spacing: 10px; text-align:center; color: var(--accent-2); margin: 10px 0; direction:ltr; }
+  .join-url{ text-align:center; color: var(--text-dim); font-size:.95rem; margin-bottom:18px; word-break:break-all; }
+  .players-grid{ display:flex; flex-wrap:wrap; gap:10px; justify-content:center; margin: 16px 0; }
+  .player-pill{ background: var(--surface-2); padding:10px 18px; border-radius:999px; font-weight:800; }
+  .answer-bars{ display:flex; flex-direction:column; gap:8px; margin: 14px 0; }
+  .answer-bar-row{ display:flex; align-items:center; gap:10px; }
+  .answer-bar-track{ flex:1; height:22px; background: var(--surface-2); border-radius:8px; overflow:hidden; }
+  .answer-bar-fill{ height:100%; background: var(--grad-1); transition: width .5s; }
+  .answer-bar-row.correct .answer-bar-fill{ background: var(--grad-2); }
+</style>
+</head>
+<body>
+<nav class="topnav"><div class="container">
+  <a class="brand" href="../index.html"><span class="logo">🎲</span> ساحة الصف</a>
+  <div class="navlinks"><a href="../index.html">الرئيسية</a><a href="../index.html#games">الألعاب</a><a href="../questions.html">بنك الأسئلة</a></div>
+</div></nav>
+
+<div class="game-shell">
+  <div class="game-header container">
+    <h1>📡 شاشة العرض المباشر <span class="badge">تجريبي Beta</span></h1>
+    <p>يفتح كل طالب اللعبة من جهازه الخاص (هاتف/آيباد) ويدخل كود الغرفة — الجميع يلعبون معًا بنفس اللحظة.</p>
+    <div id="conn-badge"></div>
+  </div>
+  <div class="game-stage container" id="stage"></div>
+</div>
+
+<script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore-compat.js"></script>
+<script src="../js/common.js"></script>
+<script src="../js/live-common.js"></script>
+<script>
+const HOST_STATE_KEY = 'egl_live_host_state_v1';
+let code, hostQuestions, latestRoom = null, unsubscribe = null, questionTimerInt, questionTimeLeft, finishedThisRound;
+
+async function init(){
+  EGL.seedIfEmpty();
+  const badge = document.getElementById('conn-badge');
+  badge.innerHTML = `<span class="conn-badge pending">⏳ يتم فحص الاتصال بخدمة اللعب المباشر...</span>`;
+  EGLLive.checkConnection().then(r=>{
+    badge.innerHTML = r.ok
+      ? `<span class="conn-badge ok">✅ متصل بخدمة اللعب المباشر</span>`
+      : `<span class="conn-badge bad">⚠️ تعذّر الاتصال — تحقق من الإنترنت أو إعداد Firebase (${EGL.escapeHtml(r.error||'')})</span>`;
+  });
+
+  const saved = sessionStorage.getItem(HOST_STATE_KEY);
+  if(saved){
+    try{
+      const parsed = JSON.parse(saved);
+      const room = await EGLLive.getRoom(parsed.code);
+      if(room && room.phase !== 'ended'){
+        code = parsed.code;
+        hostQuestions = parsed.questions;
+        subscribeRoom();
+        return;
+      }
+    }catch(e){ /* ignore, fall through to setup */ }
+    sessionStorage.removeItem(HOST_STATE_KEY);
+  }
+  renderSetup();
+}
+
+function renderSetup(){
+  const banks = EGL.getBanks().filter(b => b.questions.some(q=>q.type==='mcq'||q.type==='tf'));
+  const stage = document.getElementById('stage');
+  stage.innerHTML = `
+    <div class="qcard">
+      <h3 style="margin-top:0;">🚀 إنشاء غرفة جديدة</h3>
+      <label>بنك الأسئلة</label>
+      <select id="ls-bank">
+        ${banks.length ? banks.map(b=>`<option value="${b.id}">${b.icon||'📚'} ${EGL.escapeHtml(b.name)}</option>`).join('') : `<option value="">لا يوجد بنك مناسب — أضِف أسئلة اختيار/صح-خطأ من صفحة بنك الأسئلة</option>`}
+      </select>
+      <label>عدد الأسئلة</label>
+      <input type="number" id="ls-count" min="3" max="20" value="10">
+      <button class="btn btn-primary btn-block" id="btn-create-room">أنشئ الغرفة 🎉</button>
+    </div>`;
+  document.getElementById('btn-create-room').addEventListener('click', createRoom);
+}
+
+async function createRoom(){
+  const bankId = document.getElementById('ls-bank').value;
+  if(!bankId){ EGL.toast('اختر بنك أسئلة أولًا'); return; }
+  const count = parseInt(document.getElementById('ls-count').value) || 10;
+  const bank = EGL.getBank(bankId);
+  hostQuestions = EGL.shuffle(bank.questions.filter(q=>q.type==='mcq'||q.type==='tf')).slice(0, count);
+  if(hostQuestions.length < 2){ EGL.toast('تحتاج على الأقل سؤالين اختيار/صح-خطأ في هذا البنك'); return; }
+
+  const btn = document.getElementById('btn-create-room');
+  btn.disabled = true; btn.textContent = '⏳ جاري الإنشاء...';
+  try{
+    code = await EGLLive.createRoom({
+      phase: 'lobby', bankName: bank.name, totalQuestions: hostQuestions.length,
+      currentIndex: -1, currentQuestion: null, players: {}, answers: {}, questionStartedAt: null
+    });
+    sessionStorage.setItem(HOST_STATE_KEY, JSON.stringify({ code, questions: hostQuestions }));
+    subscribeRoom();
+  }catch(e){
+    console.error(e);
+    EGL.toast('⚠️ فشل إنشاء الغرفة: ' + (e.message||e));
+    btn.disabled = false; btn.textContent = 'أنشئ الغرفة 🎉';
+  }
+}
+
+function subscribeRoom(){
+  if(unsubscribe) unsubscribe();
+  unsubscribe = EGLLive.onRoom(code, room => {
+    latestRoom = room;
+    if(!room){ EGL.toast('⚠️ لم يعد بالإمكان العثور على الغرفة'); return; }
+    render(room);
+  }, err => EGL.toast('⚠️ خطأ بالمزامنة: ' + err.message));
+}
+
+function render(room){
+  if(room.phase === 'lobby') renderLobby(room);
+  else if(room.phase === 'question') renderQuestion(room);
+  else if(room.phase === 'reveal') renderReveal(room);
+  else if(room.phase === 'ended') renderEnded(room);
+}
+
+function joinUrl(){
+  return location.origin + location.pathname.replace('live-host.html','live-join.html') + '?room=' + code;
+}
+
+function renderLobby(room){
+  const players = Object.values(room.players||{});
+  const stage = document.getElementById('stage');
+  stage.innerHTML = `
+    <div class="qcard">
+      <p class="hint" style="text-align:center;">كود الغرفة — اطلب من الطلاب إدخاله في صفحة الانضمام:</p>
+      <div class="room-code-big">${code}</div>
+      <p class="join-url">🔗 ${joinUrl()}</p>
+      <p style="text-align:center; font-weight:800;">👥 المنضمّون (${players.length})</p>
+      <div class="players-grid">${players.map(p=>`<div class="player-pill">${p.emoji||'🎓'} ${EGL.escapeHtml(p.name)}</div>`).join('') || '<p class="hint">بانتظار انضمام الطلاب...</p>'}</div>
+      <button class="btn btn-gold btn-block" id="btn-start-game">ابدأ اللعبة ▶</button>
+    </div>`;
+  document.getElementById('btn-start-game').addEventListener('click', ()=>broadcastQuestion(0));
+}
+
+async function broadcastQuestion(index){
+  clearInterval(questionTimerInt);
+  finishedThisRound = false;
+  const q = hostQuestions[index];
+  const redacted = { index, text: q.text, options: q.options, type: q.type, points: q.points||10, revealCorrectIndex: null, revealAnswerText: null };
+  await EGLLive.updateRoom(code, {
+    phase: 'question', currentIndex: index, currentQuestion: redacted, answers: {}, questionStartedAt: Date.now()
+  });
+}
+
+function renderQuestion(room){
+  clearInterval(questionTimerInt);
+  const answeredCount = Object.keys(room.answers||{}).length;
+  const totalPlayers = Object.keys(room.players||{}).length;
+  const stage = document.getElementById('stage');
+  stage.innerHTML = `
+    <div class="qcard">
+      <div class="qmeta"><span class="badge">سؤال ${room.currentIndex+1} / ${room.totalQuestions}</span><span class="badge" id="answered-count">✍️ ${answeredCount} / ${totalPlayers} أجابوا</span></div>
+      <div class="timer-bar"><div id="q-timer-fill" style="width:100%"></div></div>
+      <div class="qtext">${EGL.escapeHtml(room.currentQuestion.text)}</div>
+      <div class="options">${room.currentQuestion.options.map(o=>`<div class="option-btn" style="cursor:default;">${EGL.escapeHtml(o)}</div>`).join('')}</div>
+      <button class="btn btn-outline btn-block" id="btn-finish-round" style="margin-top:14px;">⏭ إنهاء الجولة الآن</button>
+    </div>`;
+  document.getElementById('btn-finish-round').addEventListener('click', finishQuestion);
+  questionTimeLeft = EGLLive.QUESTION_TIME;
+  questionTimerInt = setInterval(()=>{
+    questionTimeLeft--;
+    const fill = document.getElementById('q-timer-fill');
+    if(fill) fill.style.width = Math.max(0,(questionTimeLeft/EGLLive.QUESTION_TIME*100))+'%';
+    if(questionTimeLeft<=0) finishQuestion();
+  }, 1000);
+}
+
+async function finishQuestion(){
+  if(finishedThisRound) return;
+  finishedThisRound = true;
+  clearInterval(questionTimerInt);
+  const room = latestRoom;
+  const q = hostQuestions[room.currentIndex];
+  const answers = room.answers || {};
+  const players = room.players || {};
+  const patch = {
+    phase: 'reveal',
+    'currentQuestion.revealCorrectIndex': q.correctIndex,
+    'currentQuestion.revealAnswerText': q.answerText || q.options[q.correctIndex]
+  };
+  Object.keys(answers).forEach(pid=>{
+    const a = answers[pid];
+    if(a && a.optionIndex === q.correctIndex){
+      const bonus = Math.max(0, Math.round((1 - (a.t||0)/(EGLLive.QUESTION_TIME*1000)) * (q.points||10) * 0.5));
+      const curScore = (players[pid] && players[pid].score) || 0;
+      patch['players.'+pid+'.score'] = curScore + (q.points||10) + bonus;
+    }
+  });
+  try{ await EGLLive.updateRoom(code, patch); }
+  catch(e){ console.error(e); EGL.toast('⚠️ خطأ أثناء تسجيل النتائج'); }
+}
+
+function renderReveal(room){
+  const q = hostQuestions[room.currentIndex];
+  const answers = room.answers || {};
+  const counts = room.currentQuestion.options.map((_,i)=> Object.values(answers).filter(a=>a && a.optionIndex===i).length);
+  const maxCount = Math.max(1, ...counts);
+  const ranking = Object.values(room.players||{}).sort((a,b)=>(b.score||0)-(a.score||0)).slice(0,8);
+  const isLast = room.currentIndex+1 >= room.totalQuestions;
+  const stage = document.getElementById('stage');
+  stage.innerHTML = `
+    <div class="qcard">
+      <div class="qmeta"><span class="badge">✅ الإجابة الصحيحة</span></div>
+      <div class="qtext">${EGL.escapeHtml(room.currentQuestion.revealAnswerText)}</div>
+      <div class="answer-bars">
+        ${room.currentQuestion.options.map((o,i)=>`
+          <div class="answer-bar-row ${i===room.currentQuestion.revealCorrectIndex?'correct':''}">
+            <span style="min-width:120px;">${EGL.escapeHtml(o)}</span>
+            <div class="answer-bar-track"><div class="answer-bar-fill" style="width:${(counts[i]/maxCount*100)}%"></div></div>
+            <span>${counts[i]}</span>
+          </div>`).join('')}
+      </div>
+      <p style="font-weight:800; margin-top:14px;">🏆 المتصدرون</p>
+      <div class="scoreboard" style="justify-content:center;">
+        ${ranking.map((p,r)=>`<div class="player-chip ${r===0?'active':''}"><div>${r===0?'🥇':r===1?'🥈':r===2?'🥉':p.emoji}</div><div class="pname">${EGL.escapeHtml(p.name)}</div><div class="pscore">${p.score||0}</div></div>`).join('')}
+      </div>
+      <button class="btn btn-primary btn-block" id="btn-next" style="margin-top:14px;">${isLast?'إنهاء وعرض النتائج 🏁':'السؤال التالي ▶'}</button>
+    </div>`;
+  document.getElementById('btn-next').addEventListener('click', async ()=>{
+    if(isLast) await EGLLive.updateRoom(code, {phase:'ended'});
+    else broadcastQuestion(room.currentIndex+1);
+  });
+}
+
+function renderEnded(room){
+  EGL.confetti(150); EGL.beep('win');
+  sessionStorage.removeItem(HOST_STATE_KEY);
+  const ranking = Object.values(room.players||{}).sort((a,b)=>(b.score||0)-(a.score||0));
+  const stage = document.getElementById('stage');
+  stage.innerHTML = `<div class="qcard">
+    <div style="font-size:3rem; text-align:center;">🏆</div><h2 style="text-align:center;">انتهت اللعبة!</h2>
+    <div class="scoreboard" style="justify-content:center;">
+      ${ranking.map((p,r)=>`<div class="player-chip ${r===0?'active':''}"><div>${r===0?'🥇':r===1?'🥈':r===2?'🥉':p.emoji}</div><div class="pname">${EGL.escapeHtml(p.name)}</div><div class="pscore">${p.score||0}</div></div>`).join('') || '<p class="hint">لم ينضم أحد بعد</p>'}
+    </div>
+    <div style="display:flex; gap:10px; justify-content:center; margin-top:16px;">
+      <button class="btn btn-primary" onclick="location.reload()">🔁 غرفة جديدة</button>
+      <a class="btn btn-outline" href="../index.html">🏠 الألعاب الأخرى</a>
+    </div>
+  </div>`;
+}
+
+init();
+</script>
+</body>
+</html>

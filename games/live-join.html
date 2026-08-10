@@ -1,0 +1,204 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>انضمام للعبة — ساحة الصف</title>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>📱</text></svg>">
+<link rel="stylesheet" href="../css/style.css">
+<style>
+  .emoji-pick-row{ display:flex; gap:10px; justify-content:center; flex-wrap:wrap; margin-bottom:16px; }
+  .emoji-pick{ font-size:1.8rem; width:52px; height:52px; border-radius:14px; background: var(--surface-2); display:flex; align-items:center; justify-content:center; cursor:pointer; border:3px solid transparent; }
+  .emoji-pick.selected{ border-color: var(--accent-2); }
+  .my-code-big{ font-size:2.4rem; font-weight:900; text-align:center; margin:10px 0; direction:ltr; }
+  .waiting-pulse{ text-align:center; font-size:2.5rem; animation: pulseWait 1.4s infinite; }
+  @keyframes pulseWait{ 0%,100%{opacity:.4;} 50%{opacity:1;} }
+  .feedback-big{ font-size:2.2rem; font-weight:900; text-align:center; margin: 16px 0; }
+  .conn-badge{ display:inline-block; padding:6px 14px; border-radius:999px; font-size:.8rem; font-weight:800; margin-bottom:14px; }
+  .conn-badge.ok{ background: rgba(43,224,138,.2); color: var(--success); }
+  .conn-badge.bad{ background: rgba(255,92,92,.2); color: var(--danger); }
+  .conn-badge.pending{ background: var(--surface-2); color: var(--text-dim); }
+</style>
+</head>
+<body>
+<nav class="topnav"><div class="container">
+  <a class="brand" href="../index.html"><span class="logo">🎲</span> ساحة الصف</a>
+  <div class="navlinks"><a href="../index.html">الرئيسية</a><a href="../index.html#games">الألعاب</a><a href="../questions.html">بنك الأسئلة</a></div>
+</div></nav>
+
+<div class="game-shell">
+  <div class="game-header container">
+    <h1>📱 انضمام للعبة المباشرة</h1>
+    <div id="conn-badge"></div>
+  </div>
+  <div class="game-stage container" id="stage"></div>
+</div>
+
+<script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore-compat.js"></script>
+<script src="../js/common.js"></script>
+<script src="../js/live-common.js"></script>
+<script>
+const PID_KEY = 'egl_live_pid_v1';
+const EMOJIS = ['🦁','🐯','🐼','🦊','🐨','🐸','🐵','🦄','🐙','🦋'];
+let code, playerId, unsubscribe, selectedEmoji = EMOJIS[0], myLastOption = null, questionTickInt;
+
+function getPid(){
+  let pid = sessionStorage.getItem(PID_KEY);
+  if(!pid){ pid = EGL.uuid(); sessionStorage.setItem(PID_KEY, pid); }
+  return pid;
+}
+
+async function init(){
+  const badge = document.getElementById('conn-badge');
+  badge.innerHTML = `<span class="conn-badge pending">⏳ يتم فحص الاتصال...</span>`;
+  EGLLive.checkConnection().then(r=>{
+    badge.innerHTML = r.ok
+      ? `<span class="conn-badge ok">✅ متصل</span>`
+      : `<span class="conn-badge bad">⚠️ تعذّر الاتصال (${EGL.escapeHtml(r.error||'')})</span>`;
+  });
+  playerId = getPid();
+  const urlRoom = new URLSearchParams(location.search).get('room') || '';
+  renderJoinForm(urlRoom);
+}
+
+function renderJoinForm(prefillCode){
+  const stage = document.getElementById('stage');
+  stage.innerHTML = `
+    <div class="qcard">
+      <label>كود الغرفة</label>
+      <input type="text" id="jf-code" inputmode="numeric" maxlength="4" placeholder="مثال: 4821" value="${EGL.escapeHtml(prefillCode)}" style="text-align:center; font-size:1.6rem; letter-spacing:6px; direction:ltr;">
+      <label>اسمك</label>
+      <input type="text" id="jf-name" placeholder="اكتب اسمك">
+      <label>اختر رمزك</label>
+      <div class="emoji-pick-row" id="emoji-row">${EMOJIS.map((e,i)=>`<div class="emoji-pick ${i===0?'selected':''}" data-e="${e}">${e}</div>`).join('')}</div>
+      <button class="btn btn-primary btn-block" id="btn-join">انضم للعبة 🚀</button>
+    </div>`;
+  document.getElementById('emoji-row').querySelectorAll('.emoji-pick').forEach(el=>el.addEventListener('click', ()=>{
+    document.querySelectorAll('.emoji-pick').forEach(x=>x.classList.remove('selected'));
+    el.classList.add('selected');
+    selectedEmoji = el.dataset.e;
+  }));
+  document.getElementById('btn-join').addEventListener('click', doJoin);
+}
+
+async function doJoin(){
+  const codeInput = document.getElementById('jf-code').value.trim();
+  const name = document.getElementById('jf-name').value.trim();
+  if(!/^[0-9]{4}$/.test(codeInput)){ EGL.toast('أدخل كود الغرفة المكوّن من 4 أرقام'); return; }
+  if(!name){ EGL.toast('أدخل اسمك'); return; }
+  const btn = document.getElementById('btn-join');
+  btn.disabled = true; btn.textContent = '⏳ جاري الانضمام...';
+  try{
+    const room = await EGLLive.getRoom(codeInput);
+    if(!room){ EGL.toast('⚠️ لم يتم العثور على هذه الغرفة — تحقق من الكود'); btn.disabled=false; btn.textContent='انضم للعبة 🚀'; return; }
+    code = codeInput;
+    await EGLLive.updateRoom(code, { ['players.'+playerId]: { name, emoji: selectedEmoji, score: 0, joinedAt: Date.now() } });
+    unsubscribe = EGLLive.onRoom(code, render, err=>EGL.toast('⚠️ خطأ بالمزامنة: '+err.message));
+  }catch(e){
+    console.error(e);
+    EGL.toast('⚠️ فشل الانضمام: ' + (e.message||e));
+    btn.disabled = false; btn.textContent = 'انضم للعبة 🚀';
+  }
+}
+
+function render(room){
+  if(!room){ EGL.toast('⚠️ انتهت الغرفة أو لم تعد موجودة'); return; }
+  clearInterval(questionTickInt);
+  if(room.phase === 'lobby') renderLobby(room);
+  else if(room.phase === 'question') renderQuestion(room);
+  else if(room.phase === 'reveal') renderReveal(room);
+  else if(room.phase === 'ended') renderEnded(room);
+}
+
+function renderLobby(room){
+  const me = room.players[playerId] || {};
+  const stage = document.getElementById('stage');
+  stage.innerHTML = `
+    <div class="qcard">
+      <div style="font-size:3rem; text-align:center;">${me.emoji||selectedEmoji}</div>
+      <p style="text-align:center; font-weight:800;">أهلًا ${EGL.escapeHtml(me.name||'')}!</p>
+      <div class="waiting-pulse">⏳</div>
+      <p style="text-align:center;">بانتظار بدء المعلم للعبة...</p>
+      <p class="hint" style="text-align:center;">👥 عدد المنضمين حاليًا: ${Object.keys(room.players||{}).length}</p>
+    </div>`;
+}
+
+function renderQuestion(room){
+  const alreadyAnswered = room.answers && room.answers[playerId];
+  const stage = document.getElementById('stage');
+  if(alreadyAnswered){
+    stage.innerHTML = `<div class="qcard">
+      <div style="font-size:2.5rem; text-align:center;">✅</div>
+      <p style="text-align:center; font-weight:800;">تم إرسال إجابتك!</p>
+      <p style="text-align:center;">بانتظار انتهاء الوقت أو إجابة باقي الطلاب...</p>
+    </div>`;
+    return;
+  }
+  stage.innerHTML = `
+    <div class="qcard">
+      <div class="qmeta"><span class="badge">سؤال ${room.currentIndex+1} / ${room.totalQuestions}</span></div>
+      <div class="timer-bar"><div id="q-timer-fill" style="width:100%"></div></div>
+      <div class="qtext">${EGL.escapeHtml(room.currentQuestion.text)}</div>
+      <div class="options" id="opts">${room.currentQuestion.options.map((o,i)=>`<button class="option-btn" data-i="${i}">${EGL.escapeHtml(o)}</button>`).join('')}</div>
+    </div>`;
+  document.getElementById('opts').querySelectorAll('.option-btn').forEach(btn=>btn.addEventListener('click', ()=>submitAnswer(parseInt(btn.dataset.i), room)));
+
+  const startedAt = room.questionStartedAt || Date.now();
+  questionTickInt = setInterval(()=>{
+    const elapsed = (Date.now() - startedAt)/1000;
+    const left = Math.max(0, EGLLive.QUESTION_TIME - elapsed);
+    const fill = document.getElementById('q-timer-fill');
+    if(fill) fill.style.width = (left/EGLLive.QUESTION_TIME*100)+'%';
+    if(left<=0) clearInterval(questionTickInt);
+  }, 250);
+}
+
+async function submitAnswer(i, room){
+  myLastOption = i;
+  document.querySelectorAll('.option-btn').forEach(b=>b.disabled=true);
+  const t = Date.now() - (room.questionStartedAt||Date.now());
+  try{
+    await EGLLive.updateRoom(code, { ['answers.'+playerId]: { optionIndex: i, t } });
+    EGL.beep('tick');
+  }catch(e){ EGL.toast('⚠️ تعذّر إرسال الإجابة'); }
+}
+
+function renderReveal(room){
+  const mine = room.answers && room.answers[playerId];
+  const correct = mine && mine.optionIndex === room.currentQuestion.revealCorrectIndex;
+  const me = room.players[playerId] || {};
+  const ranking = Object.values(room.players||{}).sort((a,b)=>(b.score||0)-(a.score||0));
+  const myRank = ranking.findIndex(p=>p.name===me.name && p.emoji===me.emoji) + 1;
+  if(correct) EGL.confetti(40);
+  EGL.beep(correct?'correct':'wrong');
+  const stage = document.getElementById('stage');
+  stage.innerHTML = `
+    <div class="qcard">
+      <div class="feedback-big">${mine ? (correct ? '✅ إجابة صحيحة!' : '❌ إجابة خاطئة') : '⏱ لم تُجب في الوقت'}</div>
+      <p style="text-align:center;">الإجابة الصحيحة: <strong style="color:var(--accent-2)">${EGL.escapeHtml(room.currentQuestion.revealAnswerText)}</strong></p>
+      <p style="text-align:center; font-weight:800;">نقاطك: ${me.score||0} — ترتيبك: #${myRank||'-'}</p>
+      <p class="hint" style="text-align:center;">بانتظار السؤال التالي من المعلم...</p>
+    </div>`;
+}
+
+function renderEnded(room){
+  const me = room.players[playerId] || {};
+  const ranking = Object.values(room.players||{}).sort((a,b)=>(b.score||0)-(a.score||0));
+  const myRank = ranking.findIndex(p=>p.name===me.name && p.emoji===me.emoji) + 1;
+  EGL.confetti(myRank<=3?150:60); EGL.beep('win');
+  const stage = document.getElementById('stage');
+  stage.innerHTML = `<div class="qcard">
+    <div style="font-size:3rem; text-align:center;">${myRank===1?'🥇':myRank===2?'🥈':myRank===3?'🥉':'🏁'}</div>
+    <h2 style="text-align:center;">انتهت اللعبة!</h2>
+    <p style="text-align:center; font-size:1.3rem; font-weight:800;">ترتيبك: #${myRank||'-'} — نقاطك: ${me.score||0}</p>
+    <div style="display:flex; gap:10px; justify-content:center; margin-top:16px;">
+      <a class="btn btn-outline" href="../index.html">🏠 الرئيسية</a>
+    </div>
+  </div>`;
+}
+
+init();
+</script>
+</body>
+</html>
