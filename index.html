@@ -1,0 +1,116 @@
+<!doctype html>
+<html lang="ar" dir="rtl">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>تصحيح — مساعدك الذكي لتصحيح أوراق الطلاب</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Tajawal:wght@400;500;700;800&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+  <header class="site-header">
+    <div class="brand"><span class="logo">📝</span> تصحيح</div>
+    <div class="header-actions">
+      <button class="btn btn-secondary" id="newExamBtn" type="button">+ امتحان جديد</button>
+      <button class="icon-btn" id="openSettingsBtn" title="الإعدادات" type="button">⚙️</button>
+    </div>
+  </header>
+
+  <main>
+    <h1>امتحاناتك</h1>
+    <p class="subtitle">صوّر ورقة الأسئلة والإجابة النموذجية، ثم ارفع أوراق إجابات الطلاب ليصحّحها الذكاء الاصطناعي تلقائياً.</p>
+
+    <div id="emptyState" class="empty-state" style="display:none;">
+      <h2>لا يوجد امتحانات بعد</h2>
+      <p>ابدأ بإنشاء امتحان جديد، ثم أضف صورة الإجابة النموذجية وأوراق الطلاب.</p>
+      <button class="btn btn-primary" id="newExamBtn2" type="button">+ إنشاء أول امتحان</button>
+    </div>
+
+    <div class="exams-grid" id="examsGrid"></div>
+  </main>
+
+  <!-- نافذة امتحان جديد -->
+  <div class="modal-overlay" id="newExamModal">
+    <div class="modal-box">
+      <div class="modal-head">
+        <h2>امتحان جديد</h2>
+        <button class="icon-btn" id="cancelNewExamBtnX" type="button" onclick="document.getElementById('newExamModal').classList.remove('open')">✕</button>
+      </div>
+      <form id="newExamForm">
+        <div class="form-row">
+          <label for="examNameInput">اسم الامتحان</label>
+          <input type="text" id="examNameInput" placeholder="مثال: امتحان الفصل الأول - رياضيات" required>
+        </div>
+        <div class="form-row">
+          <label for="examSubjectInput">المادة (اختياري)</label>
+          <input type="text" id="examSubjectInput" placeholder="مثال: الرياضيات">
+        </div>
+        <div class="form-row">
+          <label for="examMaxScoreInput">العلامة الكاملة</label>
+          <input type="number" id="examMaxScoreInput" value="100" min="1" step="1" required>
+        </div>
+        <div class="form-row">
+          <label for="examInstructionsInput">تعليمات إضافية للتصحيح (اختياري)</label>
+          <textarea id="examInstructionsInput" rows="3" placeholder="مثال: أعطِ نصف علامة للإجابات الصحيحة جزئياً، ولا تخصم على الأخطاء الإملائية"></textarea>
+        </div>
+        <div class="form-actions">
+          <button type="button" class="btn btn-secondary" id="cancelNewExamBtn">إلغاء</button>
+          <button type="submit" class="btn btn-primary">إنشاء ومتابعة</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- نافذة الإعدادات -->
+  <div class="modal-overlay" id="settingsModal">
+    <div class="modal-box">
+      <div class="modal-head">
+        <h2>الإعدادات</h2>
+        <button class="icon-btn" id="closeSettingsBtn" type="button">✕</button>
+      </div>
+      <div class="privacy-note">
+        🔒 يُحفظ مفتاح API في متصفحك فقط ولا يُرسَل إلا مباشرة إلى Anthropic عند التصحيح. تُحفظ كل بياناتك (الامتحانات والصور والنتائج) محلياً في هذا المتصفح فقط دون أي خادم خارجي.
+      </div>
+      <form id="settingsForm">
+        <div class="form-row">
+          <label for="apiKeyInput">مفتاح Anthropic API</label>
+          <div class="key-input-row">
+            <input type="password" id="apiKeyInput" placeholder="sk-ant-...">
+            <button type="button" class="btn btn-secondary btn-sm" id="toggleKeyBtn">عرض</button>
+          </div>
+          <div class="field-hint">احصل على مفتاح من console.anthropic.com ← Settings ← API Keys</div>
+        </div>
+        <div class="form-row">
+          <label for="modelSelect">النموذج المستخدم للتصحيح</label>
+          <select id="modelSelect"></select>
+        </div>
+        <div class="form-row checkbox-row">
+          <input type="checkbox" id="keepImagesInput">
+          <label for="keepImagesInput">الاحتفاظ بصور أوراق الطلاب بعد التصحيح (يزيد المساحة المستخدمة)</label>
+        </div>
+        <p class="field-hint" id="storageUsage"></p>
+        <div class="form-actions">
+          <button type="submit" class="btn btn-primary">حفظ الإعدادات</button>
+        </div>
+      </form>
+      <hr style="margin:18px 0;border:none;border-top:1px solid var(--border)">
+      <h3>نسخة احتياطية</h3>
+      <p class="field-hint">بما أن البيانات محفوظة في هذا المتصفح فقط، يُنصح بتصدير نسخة احتياطية بشكل دوري.</p>
+      <div class="form-actions" style="justify-content:flex-start;flex-wrap:wrap;">
+        <button type="button" class="btn btn-secondary btn-sm" id="exportBackupBtn">⬇️ تصدير نسخة احتياطية</button>
+        <label class="btn btn-secondary btn-sm" style="cursor:pointer;">
+          ⬆️ استيراد نسخة احتياطية
+          <input type="file" id="importBackupInput" accept="application/json" style="display:none;">
+        </label>
+      </div>
+    </div>
+  </div>
+
+  <script src="js/utils.js"></script>
+  <script src="js/storage.js"></script>
+  <script src="js/api.js"></script>
+  <script src="js/common.js"></script>
+  <script src="js/app.js"></script>
+</body>
+</html>
