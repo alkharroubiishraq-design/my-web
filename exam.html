@@ -1,0 +1,180 @@
+<!doctype html>
+<html lang="ar" dir="rtl">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>الامتحان — تصحيح</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Tajawal:wght@400;500;700;800&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+  <header class="site-header">
+    <div class="brand"><span class="logo">📝</span> تصحيح</div>
+    <div class="header-actions">
+      <button class="icon-btn" id="openSettingsBtn" title="الإعدادات" type="button">⚙️</button>
+    </div>
+  </header>
+
+  <main>
+    <a class="back-link" href="index.html">→ العودة لكل الامتحانات</a>
+
+    <div class="exam-header">
+      <div>
+        <h1 id="examTitle">…</h1>
+        <div class="exam-meta" id="examMeta"></div>
+      </div>
+      <button class="btn btn-secondary" id="editExamBtn" type="button">✏️ تعديل بيانات الامتحان</button>
+    </div>
+
+    <section class="section">
+      <h2>1) صور الامتحان</h2>
+      <p class="section-desc">ارفع صورة ورقة الأسئلة (اختياري) وصورة الإجابة النموذجية (مطلوبة للتصحيح).</p>
+      <div class="images-grid">
+        <div class="image-zone">
+          <h3>ورقة الأسئلة (اختياري)</h3>
+          <img id="questionImagePreview" alt="ورقة الأسئلة">
+          <div class="zone-actions">
+            <label class="file-label">اختيار صورة<input type="file" accept="image/*" id="questionImageInput"></label>
+            <button class="btn btn-secondary btn-sm" id="removeQuestionImageBtn" style="display:none;" type="button">إزالة</button>
+          </div>
+        </div>
+        <div class="image-zone">
+          <h3>الإجابة النموذجية *</h3>
+          <img id="answerKeyImagePreview" alt="الإجابة النموذجية">
+          <div class="zone-actions">
+            <label class="file-label">اختيار صورة<input type="file" accept="image/*" id="answerKeyImageInput"></label>
+            <button class="btn btn-secondary btn-sm" id="removeAnswerKeyImageBtn" style="display:none;" type="button">إزالة</button>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="section">
+      <h2>2) الطلاب</h2>
+      <p class="section-desc">أضف كل طالب باسمه وصورة ورقة إجابته، ثم صحّح كل ورقة على حدة أو صحّح الكل دفعة واحدة.</p>
+      <form class="add-student-form" id="addStudentForm">
+        <div class="form-row">
+          <label for="studentNameInput">اسم الطالب</label>
+          <input type="text" id="studentNameInput" placeholder="اسم الطالب" required>
+        </div>
+        <div class="form-row">
+          <label class="file-label">📷 صورة ورقة الإجابة<input type="file" accept="image/*" id="studentImageInput" required></label>
+        </div>
+        <button type="submit" class="btn btn-secondary">+ إضافة طالب</button>
+      </form>
+
+      <div class="stats-bar" id="statsBar"></div>
+
+      <div style="overflow-x:auto;">
+        <table class="students-table">
+          <thead>
+            <tr><th>الاسم</th><th>الحالة</th><th>العلامة</th><th>الإجراءات</th></tr>
+          </thead>
+          <tbody id="studentsTableBody"></tbody>
+        </table>
+      </div>
+      <p id="noStudents" class="field-hint" style="display:none;">لم تتم إضافة أي طالب بعد.</p>
+
+      <button class="btn btn-primary" id="gradeAllBtn" type="button" style="margin-top:14px;">🪄 تصحيح الكل</button>
+
+      <div class="export-actions">
+        <button class="btn btn-secondary" id="exportExcelBtn" type="button">⬇️ تصدير Excel</button>
+        <button class="btn btn-secondary" id="printReportBtn" type="button">🖨️ طباعة / حفظ PDF</button>
+      </div>
+    </section>
+  </main>
+
+  <!-- نافذة تعديل بيانات الامتحان -->
+  <div class="modal-overlay" id="editExamModal">
+    <div class="modal-box">
+      <div class="modal-head"><h2>تعديل بيانات الامتحان</h2></div>
+      <form id="editExamForm">
+        <div class="form-row">
+          <label for="editExamNameInput">اسم الامتحان</label>
+          <input type="text" id="editExamNameInput" required>
+        </div>
+        <div class="form-row">
+          <label for="editExamSubjectInput">المادة</label>
+          <input type="text" id="editExamSubjectInput">
+        </div>
+        <div class="form-row">
+          <label for="editExamMaxScoreInput">العلامة الكاملة</label>
+          <input type="number" id="editExamMaxScoreInput" min="1" step="1" required>
+        </div>
+        <div class="form-row">
+          <label for="editExamInstructionsInput">تعليمات إضافية للتصحيح</label>
+          <textarea id="editExamInstructionsInput" rows="3"></textarea>
+        </div>
+        <div class="form-actions">
+          <button type="button" class="btn btn-secondary" id="cancelEditExamBtn">إلغاء</button>
+          <button type="submit" class="btn btn-primary">حفظ</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- نافذة تفاصيل الطالب -->
+  <div class="modal-overlay" id="studentDetailModal">
+    <div class="modal-box wide">
+      <div class="modal-head">
+        <h2>تفاصيل التصحيح</h2>
+        <button class="icon-btn" id="closeStudentDetailBtn" type="button">✕</button>
+      </div>
+      <div id="studentDetailBody"></div>
+    </div>
+  </div>
+
+  <!-- نافذة الإعدادات -->
+  <div class="modal-overlay" id="settingsModal">
+    <div class="modal-box">
+      <div class="modal-head">
+        <h2>الإعدادات</h2>
+        <button class="icon-btn" id="closeSettingsBtn" type="button">✕</button>
+      </div>
+      <div class="privacy-note">
+        🔒 يُحفظ مفتاح API في متصفحك فقط ولا يُرسَل إلا مباشرة إلى Anthropic عند التصحيح. تُحفظ كل بياناتك محلياً في هذا المتصفح فقط.
+      </div>
+      <form id="settingsForm">
+        <div class="form-row">
+          <label for="apiKeyInput">مفتاح Anthropic API</label>
+          <div class="key-input-row">
+            <input type="password" id="apiKeyInput" placeholder="sk-ant-...">
+            <button type="button" class="btn btn-secondary btn-sm" id="toggleKeyBtn">عرض</button>
+          </div>
+          <div class="field-hint">احصل على مفتاح من console.anthropic.com ← Settings ← API Keys</div>
+        </div>
+        <div class="form-row">
+          <label for="modelSelect">النموذج المستخدم للتصحيح</label>
+          <select id="modelSelect"></select>
+        </div>
+        <div class="form-row checkbox-row">
+          <input type="checkbox" id="keepImagesInput">
+          <label for="keepImagesInput">الاحتفاظ بصور أوراق الطلاب بعد التصحيح (يزيد المساحة المستخدمة)</label>
+        </div>
+        <p class="field-hint" id="storageUsage"></p>
+        <div class="form-actions">
+          <button type="submit" class="btn btn-primary">حفظ الإعدادات</button>
+        </div>
+      </form>
+      <hr style="margin:18px 0;border:none;border-top:1px solid var(--border)">
+      <h3>نسخة احتياطية</h3>
+      <div class="form-actions" style="justify-content:flex-start;flex-wrap:wrap;">
+        <button type="button" class="btn btn-secondary btn-sm" id="exportBackupBtn">⬇️ تصدير نسخة احتياطية</button>
+        <label class="btn btn-secondary btn-sm" style="cursor:pointer;">
+          ⬆️ استيراد نسخة احتياطية
+          <input type="file" id="importBackupInput" accept="application/json" style="display:none;">
+        </label>
+      </div>
+    </div>
+  </div>
+
+  <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+  <script src="js/utils.js"></script>
+  <script src="js/storage.js"></script>
+  <script src="js/api.js"></script>
+  <script src="js/export.js"></script>
+  <script src="js/common.js"></script>
+  <script src="js/exam.js"></script>
+</body>
+</html>
