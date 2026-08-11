@@ -1,0 +1,161 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>سباق الكتابة — ساحة الصف</title>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>⌨️</text></svg>">
+<link rel="stylesheet" href="../css/style.css">
+<style>
+  .target-word{ font-size:1.8rem; font-weight:900; text-align:center; margin: 14px 0; color: var(--accent-2); letter-spacing:1px; }
+  .tr-zones{ display:grid; gap:14px; width:100%; max-width:900px; margin:14px auto; }
+  .tr-zones.z2{ grid-template-columns:1fr 1fr; }
+  .tr-zones.z3{ grid-template-columns: repeat(3,1fr); }
+  .tr-zones.z4{ grid-template-columns:1fr 1fr; }
+  .tr-zone{ border-radius: var(--radius); padding: 16px; text-align:center; box-shadow: var(--shadow); border:2px solid rgba(255,255,255,.08); }
+  .tr-zone input{ text-align:center; font-size:1.2rem; font-weight:800; margin-bottom:0; }
+  .tr-zone.winner{ border-color: var(--success); box-shadow: 0 0 0 4px rgba(43,224,138,.3); }
+  .countdown-overlay{ position:fixed; inset:0; background: rgba(5,6,20,.88); display:flex; align-items:center; justify-content:center; z-index:250; }
+  .countdown-num{ font-size: 9rem; font-weight:900; color: var(--accent-2); text-shadow: 0 0 40px rgba(255,210,63,.6); }
+</style>
+</head>
+<body>
+<nav class="topnav"><div class="container">
+  <a class="brand" href="../index.html"><span class="logo">🎲</span> ساحة الصف</a>
+  <div class="navlinks"><a href="../index.html">الرئيسية</a><a href="../index.html#games">الألعاب</a><a href="../questions.html">بنك الأسئلة</a></div>
+</div></nav>
+
+<div class="game-shell">
+  <div class="game-header container">
+    <h1>⌨️ سباق الكتابة</h1>
+    <p>كلمة واحدة تظهر للجميع، وكل فريق يكتبها بدقة وسرعة في خانته الخاصة — الأسرع بلا أخطاء يفوز!</p>
+  </div>
+  <div class="game-stage container" id="stage"></div>
+</div>
+
+<script src="../js/common.js"></script>
+<script>
+const ROUNDS = 8;
+let players, scores, pool, poolIdx, round, roundOver, roundStart;
+
+function init(){
+  const stage = document.getElementById('stage');
+  stage.innerHTML = `<div class="empty-state"><div class="emoji">⌨️</div><h3>هيّئ اللعبة</h3><p>مثالية لـ 2-4 فرق على نفس الجهاز (كل فريق له لوحة مفاتيح أو جزء من الشاشة).</p>
+    <button class="btn btn-primary" id="btn-setup">ابدأ الإعداد 🎮</button></div>`;
+  document.getElementById('btn-setup').addEventListener('click', openSetup);
+  openSetup();
+}
+function openSetup(){
+  EGL.openSetupModal({ title:'إعداد سباق الكتابة', allowIndividual:false, allowTeams:true, needQuestions:true, minPlayers:2, maxPlayers:4 }, startGame);
+}
+
+function startGame(cfg){
+  const bank = EGL.getBank(cfg.bankId);
+  const eligible = bank.questions.filter(q => q.answerText && q.answerText.trim().length >= 2 && q.answerText.trim().length <= 30);
+  if(eligible.length < 3){ EGL.toast('تحتاج هذه اللعبة أسئلة ذات إجابات نصية (٣ على الأقل)'); return; }
+  pool = EGL.shuffle(eligible);
+  poolIdx = 0;
+  players = cfg.players;
+  scores = players.map(()=>0);
+  round = 0;
+  const stage = document.getElementById('stage');
+  stage.innerHTML = `<div id="round-badge" class="badge" style="display:block; text-align:center; margin-bottom:6px;"></div><div id="game-area"></div>`;
+  nextRound();
+}
+
+function nextRound(){
+  round++;
+  if(round > ROUNDS || poolIdx >= pool.length){ showResults(); return; }
+  document.getElementById('round-badge').textContent = `⌨️ الجولة ${round} / ${Math.min(ROUNDS, pool.length)}`;
+  renderRound();
+}
+
+function renderRound(){
+  roundOver = false;
+  const target = pool[poolIdx++].answerText.trim();
+  window._target = target;
+  const zClass = players.length === 3 ? 'z3' : (players.length === 4 ? 'z4' : 'z2');
+  const colors = ['#7c5cff','#ff5c9e','#21e6c1','#f0a93f'];
+  const area = document.getElementById('game-area');
+  area.innerHTML = `
+    <div class="qcard" style="margin-bottom:6px;">
+      <div class="target-word" id="target-word" style="visibility:hidden;">${EGL.escapeHtml(target)}</div>
+      <div style="text-align:center;"><button class="btn btn-gold" id="btn-reveal">⚡ اعرض الكلمة!</button></div>
+    </div>
+    <div class="tr-zones ${zClass}" id="zones"></div>`;
+  const zonesEl = document.getElementById('zones');
+  zonesEl.innerHTML = players.map((p,i)=>`
+    <div class="tr-zone" id="zone-${i}" style="background:linear-gradient(160deg, ${colors[i%colors.length]}55, var(--surface))">
+      <div style="font-weight:900; margin-bottom:8px;">${p.emoji} ${EGL.escapeHtml(p.name)} — ${scores[i]}</div>
+      <input type="text" id="input-${i}" disabled placeholder="اكتب هنا..." autocomplete="off">
+    </div>`).join('');
+  players.forEach((p,i)=>{
+    document.getElementById('input-'+i).addEventListener('input', (e)=>checkInput(i, e.target.value));
+  });
+  document.getElementById('btn-reveal').addEventListener('click', startCountdown);
+}
+
+function startCountdown(){
+  document.getElementById('btn-reveal').disabled = true;
+  let n = 3;
+  const overlay = document.createElement('div');
+  overlay.className = 'countdown-overlay';
+  overlay.innerHTML = `<div class="countdown-num" id="cd-num">${n}</div>`;
+  document.body.appendChild(overlay);
+  EGL.beep('tick');
+  const iv = setInterval(()=>{
+    n--;
+    if(n>0){ overlay.querySelector('#cd-num').textContent = n; EGL.beep('tick'); }
+    else {
+      overlay.querySelector('#cd-num').textContent = 'اكتبوا! ⌨️';
+      overlay.querySelector('#cd-num').style.fontSize = '5rem';
+      EGL.beep('win');
+      clearInterval(iv);
+      setTimeout(()=>{ overlay.remove(); startTyping(); }, 500);
+    }
+  }, 650);
+}
+
+function startTyping(){
+  document.getElementById('target-word').style.visibility = 'visible';
+  players.forEach((p,i)=>{ const inp = document.getElementById('input-'+i); inp.disabled = false; });
+  document.getElementById('input-0') && document.getElementById('input-0').focus();
+  roundStart = performance.now();
+}
+
+function checkInput(i, value){
+  if(roundOver) return;
+  const target = window._target;
+  if(value === target){
+    roundOver = true;
+    const elapsed = (performance.now() - roundStart)/1000;
+    const bonus = Math.max(0, Math.round(10 - elapsed));
+    scores[i] += 10 + bonus;
+    players.forEach((p,j)=>{ document.getElementById('input-'+j).disabled = true; });
+    document.getElementById('zone-'+i).classList.add('winner');
+    document.getElementById('zone-'+i).querySelector('div').textContent = `${players[i].emoji} ${players[i].name} — ${scores[i]} 🏆`;
+    EGL.beep('win'); EGL.confetti(60);
+    setTimeout(nextRound, 1800);
+  }
+}
+
+function showResults(){
+  EGL.confetti(100); EGL.beep('win');
+  const ranking = players.map((p,i)=>({...p, score:scores[i]})).sort((a,b)=>b.score-a.score);
+  const stage = document.getElementById('stage');
+  stage.innerHTML = `<div class="qcard">
+    <div style="font-size:3rem;">🏆</div><h2>انتهى السباق!</h2>
+    <div class="scoreboard" style="justify-content:center;">
+      ${ranking.map((p,r)=>`<div class="player-chip ${r===0?'active':''}"><div style="font-size:1.4rem;">${r===0?'🥇':r===1?'🥈':r===2?'🥉':p.emoji}</div><div class="pname">${EGL.escapeHtml(p.name)}</div><div class="pscore">${p.score}</div></div>`).join('')}
+    </div>
+    <div style="display:flex; gap:10px; justify-content:center; margin-top:16px;">
+      <button class="btn btn-primary" onclick="location.reload()">🔁 لعب مرة أخرى</button>
+      <a class="btn btn-outline" href="../index.html">🏠 الألعاب الأخرى</a>
+    </div>
+  </div>`;
+}
+
+init();
+</script>
+</body>
+</html>

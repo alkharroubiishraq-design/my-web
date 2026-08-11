@@ -1,0 +1,287 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>الكلمات المتقاطعة — ساحة الصف</title>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>🧩</text></svg>">
+<link rel="stylesheet" href="../css/style.css">
+<style>
+  .cw-grid{ display:grid; gap:2px; width:100%; max-width:460px; margin: 14px auto; direction:ltr; }
+  .cw-cell{ position:relative; aspect-ratio:1; background: var(--surface-2); border-radius:3px; display:flex; align-items:center; justify-content:center; font-weight:900; font-size:1rem; }
+  .cw-cell.blocked{ background:transparent; }
+  .cw-cell .num{ position:absolute; top:1px; right:2px; font-size:.55rem; font-weight:700; color: var(--text-dim); }
+  .cw-cell.solved{ background: rgba(43,224,138,.3); color: var(--success); }
+  .clue-group{ margin: 14px 0; }
+  .clue-row{ display:flex; align-items:center; gap:8px; background: var(--surface-2); border-radius:10px; padding:8px 12px; margin-bottom:8px; }
+  .clue-row.solved{ background: rgba(43,224,138,.2); }
+  .clue-row .clue-num{ font-weight:900; color: var(--accent-2); min-width:22px; }
+  .clue-row .clue-text{ flex:1; font-size:.88rem; }
+  .clue-row input{ width:110px; margin-bottom:0; text-align:center; }
+  .clue-row button{ white-space:nowrap; }
+</style>
+</head>
+<body>
+<nav class="topnav"><div class="container">
+  <a class="brand" href="../index.html"><span class="logo">🎲</span> ساحة الصف</a>
+  <div class="navlinks"><a href="../index.html">الرئيسية</a><a href="../index.html#games">الألعاب</a><a href="../questions.html">بنك الأسئلة</a></div>
+</div></nav>
+
+<div class="game-shell">
+  <div class="game-header container">
+    <h1>🧩 الكلمات المتقاطعة</h1>
+    <p>حلّوا الأدلة واكتبوا الإجابات — كل كلمة صحيحة تملأ مكانها في الشبكة المتقاطعة!</p>
+  </div>
+  <div class="game-stage container" id="stage"></div>
+</div>
+
+<script src="../js/common.js"></script>
+<script>
+const ROUND_TIME = 300;
+let sb, players, placed, gridRows, gridCols, solvedCells, solvedCount, timerInt, timeLeft;
+
+function init(){
+  const stage = document.getElementById('stage');
+  stage.innerHTML = `<div class="empty-state"><div class="emoji">🧩</div><h3>هيّئ اللعبة</h3><p>تحتاج بنك أسئلة فيه ٦ إجابات نصية قصيرة على الأقل (بدون مسافات، أقل من 10 أحرف يُفضَّل) لتوليد شبكة جيدة.</p>
+    <button class="btn btn-primary" id="btn-setup">ابدأ الإعداد 🎮</button></div>`;
+  document.getElementById('btn-setup').addEventListener('click', openSetup);
+  openSetup();
+}
+function openSetup(){
+  EGL.openSetupModal({ title:'إعداد الكلمات المتقاطعة', allowIndividual:true, allowTeams:true, needQuestions:true }, startGame);
+}
+
+function normalizeWord(w){ return w.trim().replace(/[أإآ]/g,'ا').replace(/\s+/g,''); }
+
+function buildCrossword(entries){
+  const cellMap = {};
+  const wp = [];
+  const first = entries[0];
+  for(let i=0;i<first.word.length;i++) cellMap[`0,${i}`] = first.word[i];
+  wp.push({ word:first.word, clue:first.clue, row:0, col:0, dir:'H' });
+
+  for(let idx=1; idx<entries.length; idx++){
+    const { word, clue } = entries[idx];
+    const candidates = [];
+    for(let li=0; li<word.length; li++){
+      const ch = word[li];
+      Object.keys(cellMap).forEach(key=>{
+        if(cellMap[key] !== ch) return;
+        const [er,ec] = key.split(',').map(Number);
+        ['H','V'].forEach(dir=>{
+          const row0 = dir==='H' ? er : er - li;
+          const col0 = dir==='H' ? ec - li : ec;
+          let ok = true;
+          for(let k=0;k<word.length;k++){
+            const r = dir==='H' ? row0 : row0+k;
+            const c = dir==='H' ? col0+k : col0;
+            const key2 = `${r},${c}`;
+            if(cellMap[key2] !== undefined && cellMap[key2] !== word[k]){ ok=false; break; }
+          }
+          if(ok) candidates.push({row:row0, col:col0, dir});
+        });
+      });
+    }
+    if(candidates.length){
+      const chosen = EGL.pick(candidates);
+      for(let k=0;k<word.length;k++){
+        const r = chosen.dir==='H' ? chosen.row : chosen.row+k;
+        const c = chosen.dir==='H' ? chosen.col+k : chosen.col;
+        cellMap[`${r},${c}`] = word[k];
+      }
+      wp.push({ word, clue, row:chosen.row, col:chosen.col, dir:chosen.dir });
+    }
+  }
+  return wp;
+}
+
+function normalizeAndNumber(wp){
+  let minR=Infinity,maxR=-Infinity,minC=Infinity,maxC=-Infinity;
+  wp.forEach(p=>{
+    for(let k=0;k<p.word.length;k++){
+      const r = p.dir==='H'?p.row:p.row+k;
+      const c = p.dir==='H'?p.col+k:p.col;
+      minR=Math.min(minR,r); maxR=Math.max(maxR,r);
+      minC=Math.min(minC,c); maxC=Math.max(maxC,c);
+    }
+  });
+  wp.forEach(p=>{ p.row -= minR; p.col -= minC; });
+  const rows = maxR-minR+1, cols = maxC-minC+1;
+  const starts = {};
+  wp.forEach(p=>{ starts[`${p.row},${p.col}`] = null; });
+  Object.keys(starts).map(k=>k.split(',').map(Number)).sort((a,b)=> a[0]-b[0] || a[1]-b[1])
+    .forEach(([r,c],i)=>{ starts[`${r},${c}`] = i+1; });
+  wp.forEach(p=>{ p.number = starts[`${p.row},${p.col}`]; });
+  return { rows, cols };
+}
+
+function startGame(cfg){
+  const bank = EGL.getBank(cfg.bankId);
+  const eligible = bank.questions.filter(q => q.answerText && normalizeWord(q.answerText).length >= 2 && normalizeWord(q.answerText).length <= 10);
+  const seen = new Set();
+  const entries = [];
+  eligible.forEach(q => {
+    const w = normalizeWord(q.answerText);
+    if(!seen.has(w)){ seen.add(w); entries.push({ word:w, clue:q.text }); }
+  });
+  if(entries.length < 6){ EGL.toast('تحتاج ٦ إجابات نصية مختلفة على الأقل (بدون مسافات، أقل من 10 أحرف)'); return; }
+  const chosen = EGL.shuffle(entries).slice(0, 10).sort((a,b)=>b.word.length-a.word.length);
+
+  let wp = buildCrossword(chosen);
+  let tries = 0;
+  while(wp.length < Math.min(6, chosen.length) && tries < 6){ wp = buildCrossword(EGL.shuffle(chosen).sort((a,b)=>b.word.length-a.word.length)); tries++; }
+  if(wp.length < 5){ EGL.toast('تعذّر توليد شبكة جيدة، جرّب بنكًا فيه كلمات أكثر تنوعًا'); return; }
+
+  const dims = normalizeAndNumber(wp);
+  placed = wp;
+  gridRows = dims.rows; gridCols = dims.cols;
+  solvedCells = new Set();
+  solvedCount = 0;
+  players = cfg.players;
+
+  const stage = document.getElementById('stage');
+  stage.innerHTML = `<div id="sb-wrap" class="scoreboard"></div>
+    <div class="timer-bar"><div id="timer-fill" style="width:100%"></div></div>
+    <p style="text-align:center; font-weight:800;" id="solved-badge"></p>
+    <div class="cw-grid" id="grid" style="grid-template-columns: repeat(${gridCols}, 1fr);"></div>
+    <div class="clue-group">
+      <h4>➡️ أفقي</h4>
+      <div id="clues-h"></div>
+      <h4>⬇️ عمودي</h4>
+      <div id="clues-v"></div>
+    </div>`;
+  sb = new EGL.Scoreboard(document.getElementById('sb-wrap'), players);
+  renderGrid();
+  renderClues();
+  updateSolvedBadge();
+
+  timeLeft = ROUND_TIME;
+  timerInt = setInterval(()=>{
+    timeLeft--;
+    const fill = document.getElementById('timer-fill');
+    if(fill) fill.style.width = Math.max(0,(timeLeft/ROUND_TIME*100))+'%';
+    if(timeLeft<=0){ clearInterval(timerInt); endGame(false); }
+  }, 1000);
+}
+
+function cellsOf(p){
+  const arr = [];
+  for(let k=0;k<p.word.length;k++){
+    const r = p.dir==='H'?p.row:p.row+k;
+    const c = p.dir==='H'?p.col+k:p.col;
+    arr.push([r,c]);
+  }
+  return arr;
+}
+
+function renderGrid(){
+  const letterAt = {};
+  placed.forEach(p => cellsOf(p).forEach(([r,c],k) => { letterAt[`${r},${c}`] = p.dir==='H'?p.word[k]:p.word[k]; }));
+  const numberAt = {};
+  placed.forEach(p => { numberAt[`${p.row},${p.col}`] = p.number; });
+
+  const gridEl = document.getElementById('grid');
+  gridEl.innerHTML = '';
+  for(let r=0;r<gridRows;r++){
+    for(let c=0;c<gridCols;c++){
+      const key = `${r},${c}`;
+      const cell = document.createElement('div');
+      if(letterAt[key] === undefined){
+        cell.className = 'cw-cell blocked';
+      } else {
+        cell.className = 'cw-cell' + (solvedCells.has(key) ? ' solved' : '');
+        cell.id = 'cell-'+key;
+        cell.innerHTML = `${numberAt[key] ? `<span class="num">${numberAt[key]}</span>` : ''}${solvedCells.has(key) ? letterAt[key] : ''}`;
+      }
+      gridEl.appendChild(cell);
+    }
+  }
+}
+
+function renderClues(){
+  const hWrap = document.getElementById('clues-h');
+  const vWrap = document.getElementById('clues-v');
+  const rowHtml = (p, idx) => `
+    <div class="clue-row ${solvedCells.has(`${p.row},${p.col}`) && isFullySolved(p) ? 'solved' : ''}" id="clue-${idx}">
+      <span class="clue-num">${p.number}</span>
+      <span class="clue-text">${EGL.escapeHtml(p.clue)} <em class="hint">(${p.word.length} أحرف)</em></span>
+      <input type="text" id="clue-input-${idx}" maxlength="${p.word.length+2}" ${isFullySolved(p)?'disabled':''}>
+      <button class="btn btn-accent btn-sm" data-idx="${idx}" ${isFullySolved(p)?'disabled':''}>تحقق ✅</button>
+    </div>`;
+  hWrap.innerHTML = placed.map((p,i)=>({p,i})).filter(x=>x.p.dir==='H').map(x=>rowHtml(x.p,x.i)).join('') || '<p class="hint">لا يوجد</p>';
+  vWrap.innerHTML = placed.map((p,i)=>({p,i})).filter(x=>x.p.dir==='V').map(x=>rowHtml(x.p,x.i)).join('') || '<p class="hint">لا يوجد</p>';
+  placed.forEach((p,i)=>{
+    if(isFullySolved(p)) return;
+    const btn = document.querySelector(`button[data-idx="${i}"]`);
+    const input = document.getElementById('clue-input-'+i);
+    if(btn) btn.addEventListener('click', ()=>checkClue(i));
+    if(input) input.addEventListener('keydown', e=>{ if(e.key==='Enter') checkClue(i); });
+  });
+}
+
+function isFullySolved(p){
+  return cellsOf(p).every(([r,c]) => solvedCells.has(`${r},${c}`));
+}
+
+function checkClue(i){
+  const p = placed[i];
+  const input = document.getElementById('clue-input-'+i);
+  const val = normalizeWord(input.value || '');
+  if(val === p.word){
+    cellsOf(p).forEach(([r,c]) => solvedCells.add(`${r},${c}`));
+    solvedCount++;
+    EGL.beep('correct'); EGL.confetti(30);
+    renderGrid();
+    renderClues();
+    updateSolvedBadge();
+    creditSolve(p.clue);
+    if(placed.every(isFullySolved)){ clearInterval(timerInt); setTimeout(()=>endGame(true), 900); }
+  } else {
+    input.classList.add('wrong-flash');
+    EGL.beep('wrong');
+    setTimeout(()=> input.classList.remove('wrong-flash'), 350);
+  }
+}
+
+function updateSolvedBadge(){
+  document.getElementById('solved-badge').textContent = `✅ ${placed.filter(isFullySolved).length} / ${placed.length} كلمة`;
+}
+
+function creditSolve(clue){
+  if(players.length === 1){ sb.addScore(0, 15); return; }
+  const area = document.createElement('div');
+  area.className = 'qcard';
+  area.style.marginTop = '10px';
+  area.innerHTML = `<p>من حلّ دليل "${EGL.escapeHtml(clue)}"؟</p>
+    <div style="display:flex; gap:8px; justify-content:center; flex-wrap:wrap;">
+      ${players.map((p,i)=>`<button class="btn btn-accent btn-sm" data-i="${i}">${p.emoji} ${EGL.escapeHtml(p.name)}</button>`).join('')}
+    </div>`;
+  document.getElementById('stage').appendChild(area);
+  area.querySelectorAll('button').forEach(btn=>btn.addEventListener('click', ()=>{
+    sb.addScore(parseInt(btn.dataset.i), 15);
+    area.remove();
+  }));
+}
+
+function endGame(allSolved){
+  clearInterval(timerInt);
+  if(allSolved){ EGL.confetti(150); EGL.beep('win'); }
+  const ranking = sb.ranking();
+  const stage = document.getElementById('stage');
+  stage.innerHTML = `<div class="qcard">
+    <div style="font-size:3rem;">${allSolved?'🏆':'⏱'}</div>
+    <h2>${allSolved?'حللتم اللغز بالكامل!':'انتهى الوقت!'}</h2>
+    <div class="scoreboard" style="justify-content:center;">
+      ${ranking.map((p,r)=>`<div class="player-chip ${r===0?'active':''}"><div style="font-size:1.4rem;">${r===0?'🥇':r===1?'🥈':r===2?'🥉':p.emoji}</div><div class="pname">${EGL.escapeHtml(p.name)}</div><div class="pscore">${p.score}</div></div>`).join('')}
+    </div>
+    <div style="display:flex; gap:10px; justify-content:center; margin-top:16px;">
+      <button class="btn btn-primary" onclick="location.reload()">🔁 لعب مرة أخرى</button>
+      <a class="btn btn-outline" href="../index.html">🏠 الألعاب الأخرى</a>
+    </div>
+  </div>`;
+}
+
+init();
+</script>
+</body>
+</html>

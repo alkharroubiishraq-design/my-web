@@ -1,0 +1,168 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>التصنيف الكبير — ساحة الصف</title>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>🗂️</text></svg>">
+<link rel="stylesheet" href="../css/style.css">
+<style>
+  .buckets-row{ display:grid; gap:10px; margin: 16px 0; }
+  .bucket{ background: var(--surface-2); border-radius: var(--radius-sm); padding:12px; min-height:110px; border:3px solid transparent; }
+  .bucket h4{ text-align:center; margin:0 0 8px; font-size:.95rem; }
+  .bucket.wrong-flash{ border-color: var(--danger); }
+  .bucket-items{ display:flex; flex-wrap:wrap; gap:6px; justify-content:center; }
+  .bucket-items span{ background: rgba(43,224,138,.25); color: var(--success); font-size:.75rem; padding:3px 8px; border-radius:999px; }
+  .pool{ display:flex; flex-wrap:wrap; gap:10px; justify-content:center; margin: 16px 0; }
+  .pool-card{ background: var(--surface-2); padding:10px 18px; border-radius:12px; font-weight:700; cursor:pointer; border:3px solid transparent; }
+  .pool-card.selected{ border-color: var(--accent-2); }
+</style>
+</head>
+<body>
+<nav class="topnav"><div class="container">
+  <a class="brand" href="../index.html"><span class="logo">🎲</span> ساحة الصف</a>
+  <div class="navlinks"><a href="../index.html">الرئيسية</a><a href="../index.html#games">الألعاب</a><a href="../questions.html">بنك الأسئلة</a></div>
+</div></nav>
+
+<div class="game-shell">
+  <div class="game-header container">
+    <h1>🗂️ التصنيف الكبير</h1>
+    <p>اختاروا بطاقة ثم ضعوها في الصندوق الصحيح — صنّفوا الكل قبل نفاد الوقت!</p>
+  </div>
+  <div class="game-stage container" id="stage"></div>
+</div>
+
+<script src="../js/common.js"></script>
+<script>
+const ROUND_TIME = 180;
+let sb, players, buckets, pool, selectedCard, timerInt, timeLeft;
+
+function init(){
+  const stage = document.getElementById('stage');
+  stage.innerHTML = `<div class="empty-state"><div class="emoji">🗂️</div><h3>هيّئ اللعبة</h3><p>تحتاج بنك أسئلة فيه ٣ فئات مختلفة على الأقل، وفئتين على الأقل فيهما عنصران.</p>
+    <button class="btn btn-primary" id="btn-setup">ابدأ الإعداد 🎮</button></div>`;
+  document.getElementById('btn-setup').addEventListener('click', openSetup);
+  openSetup();
+}
+function openSetup(){
+  EGL.openSetupModal({ title:'إعداد التصنيف الكبير', allowIndividual:true, allowTeams:true, needQuestions:true }, startGame);
+}
+
+function startGame(cfg){
+  const bank = EGL.getBank(cfg.bankId);
+  const byCat = {};
+  bank.questions.forEach(q=>{
+    const a = q.answerText && q.answerText.trim();
+    if(!a) return;
+    const cat = q.category || 'عام';
+    byCat[cat] = byCat[cat] || new Set();
+    byCat[cat].add(a);
+  });
+  let cats = Object.keys(byCat).filter(c => byCat[c].size >= 2).sort((a,b)=>byCat[b].size-byCat[a].size).slice(0,4);
+  if(cats.length < 2){ EGL.toast('تحتاج فئتين على الأقل فيهما عنصران لكل منهما'); return; }
+
+  buckets = cats.map(c => ({ name:c, items:[] }));
+  let cards = [];
+  cats.forEach(c => Array.from(byCat[c]).slice(0,4).forEach(item => cards.push({ text:item, category:c })));
+  pool = EGL.shuffle(cards).slice(0, 14);
+  players = cfg.players;
+  selectedCard = null;
+
+  const stage = document.getElementById('stage');
+  stage.innerHTML = `<div id="sb-wrap" class="scoreboard"></div>
+    <div class="timer-bar"><div id="timer-fill" style="width:100%"></div></div>
+    <div class="buckets-row" id="buckets-row" style="grid-template-columns: repeat(${buckets.length}, 1fr);"></div>
+    <p class="hint" style="text-align:center;">اختر بطاقة، ثم اضغط الصندوق المناسب لها:</p>
+    <div class="pool" id="pool"></div>`;
+  sb = new EGL.Scoreboard(document.getElementById('sb-wrap'), players);
+  renderBuckets();
+  renderPool();
+
+  timeLeft = ROUND_TIME;
+  timerInt = setInterval(()=>{
+    timeLeft--;
+    const fill = document.getElementById('timer-fill');
+    if(fill) fill.style.width = Math.max(0,(timeLeft/ROUND_TIME*100))+'%';
+    if(timeLeft<=0){ clearInterval(timerInt); endGame(false); }
+  }, 1000);
+}
+
+function renderBuckets(){
+  const row = document.getElementById('buckets-row');
+  row.innerHTML = buckets.map((b,i)=>`
+    <div class="bucket" id="bucket-${i}" data-i="${i}">
+      <h4>${EGL.escapeHtml(b.name)}</h4>
+      <div class="bucket-items">${b.items.map(t=>`<span>${EGL.escapeHtml(t)}</span>`).join('')}</div>
+    </div>`).join('');
+  row.querySelectorAll('.bucket').forEach(el=>el.addEventListener('click', ()=>bucketClick(parseInt(el.dataset.i), el)));
+}
+
+function renderPool(){
+  const el = document.getElementById('pool');
+  el.innerHTML = pool.map((c,i)=>`<div class="pool-card" data-i="${i}">${EGL.escapeHtml(c.text)}</div>`).join('');
+  el.querySelectorAll('.pool-card').forEach(card=>card.addEventListener('click', ()=>selectCard(card)));
+}
+
+function selectCard(card){
+  document.querySelectorAll('.pool-card').forEach(c=>c.classList.remove('selected'));
+  card.classList.add('selected');
+  selectedCard = parseInt(card.dataset.i);
+}
+
+function bucketClick(bi, el){
+  if(selectedCard === null) return;
+  const card = pool[selectedCard];
+  if(card.category === buckets[bi].name){
+    buckets[bi].items.push(card.text);
+    pool.splice(selectedCard, 1);
+    selectedCard = null;
+    renderBuckets();
+    renderPool();
+    EGL.beep('correct'); EGL.confetti(20);
+    creditPlace();
+    if(pool.length === 0){ clearInterval(timerInt); setTimeout(()=>endGame(true), 800); }
+  } else {
+    el.classList.add('wrong-flash');
+    EGL.beep('wrong');
+    setTimeout(()=> el.classList.remove('wrong-flash'), 350);
+  }
+}
+
+function creditPlace(){
+  if(players.length === 1){ sb.addScore(0, 5); return; }
+  const area = document.createElement('div');
+  area.className = 'qcard';
+  area.style.marginTop = '10px';
+  area.innerHTML = `<p>من صنّف هذه البطاقة؟</p>
+    <div style="display:flex; gap:8px; justify-content:center; flex-wrap:wrap;">
+      ${players.map((p,i)=>`<button class="btn btn-accent btn-sm" data-i="${i}">${p.emoji} ${EGL.escapeHtml(p.name)}</button>`).join('')}
+    </div>`;
+  document.getElementById('stage').appendChild(area);
+  area.querySelectorAll('button').forEach(btn=>btn.addEventListener('click', ()=>{
+    sb.addScore(parseInt(btn.dataset.i), 5);
+    area.remove();
+  }));
+}
+
+function endGame(allSorted){
+  clearInterval(timerInt);
+  if(allSorted){ EGL.confetti(120); EGL.beep('win'); }
+  const ranking = sb.ranking();
+  const stage = document.getElementById('stage');
+  stage.innerHTML = `<div class="qcard">
+    <div style="font-size:3rem;">${allSorted?'🏆':'⏱'}</div>
+    <h2>${allSorted?'صنّفتم كل البطاقات!':'انتهى الوقت!'}</h2>
+    <div class="scoreboard" style="justify-content:center;">
+      ${ranking.map((p,r)=>`<div class="player-chip ${r===0?'active':''}"><div style="font-size:1.4rem;">${r===0?'🥇':r===1?'🥈':r===2?'🥉':p.emoji}</div><div class="pname">${EGL.escapeHtml(p.name)}</div><div class="pscore">${p.score}</div></div>`).join('')}
+    </div>
+    <div style="display:flex; gap:10px; justify-content:center; margin-top:16px;">
+      <button class="btn btn-primary" onclick="location.reload()">🔁 لعب مرة أخرى</button>
+      <a class="btn btn-outline" href="../index.html">🏠 الألعاب الأخرى</a>
+    </div>
+  </div>`;
+}
+
+init();
+</script>
+</body>
+</html>

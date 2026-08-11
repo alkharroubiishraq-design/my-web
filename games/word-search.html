@@ -1,0 +1,230 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>لغز الكلمات المخفية — ساحة الصف</title>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>🔠</text></svg>">
+<link rel="stylesheet" href="../css/style.css">
+<style>
+  .ws-grid{ display:grid; gap:3px; width:100%; max-width:520px; margin: 14px auto; direction:ltr; }
+  .ws-cell{ aspect-ratio:1; background: var(--surface-2); border-radius:4px; display:flex; align-items:center; justify-content:center;
+    font-weight:800; font-size:.95rem; cursor:pointer; user-select:none; transition:.1s; }
+  .ws-cell:hover{ background: var(--primary); }
+  .ws-cell.selected{ background: var(--accent-2); color:#332400; }
+  .ws-cell.found{ background: rgba(43,224,138,.4); color: var(--success); cursor:default; }
+  .ws-words{ display:flex; flex-wrap:wrap; gap:8px; justify-content:center; margin: 14px 0; }
+  .ws-word-chip{ background: var(--surface-2); padding:6px 14px; border-radius:999px; font-weight:700; font-size:.85rem; }
+  .ws-word-chip.found{ background: rgba(43,224,138,.3); text-decoration: line-through; color: var(--success); }
+</style>
+</head>
+<body>
+<nav class="topnav"><div class="container">
+  <a class="brand" href="../index.html"><span class="logo">🎲</span> ساحة الصف</a>
+  <div class="navlinks"><a href="../index.html">الرئيسية</a><a href="../index.html#games">الألعاب</a><a href="../questions.html">بنك الأسئلة</a></div>
+</div></nav>
+
+<div class="game-shell">
+  <div class="game-header container">
+    <h1>🔠 لغز الكلمات المخفية</h1>
+    <p>ابحثوا عن كل الكلمات المخفية بالشبكة قبل نفاد الوقت — اضغطوا أول حرف ثم آخر حرف بالكلمة!</p>
+  </div>
+  <div class="game-stage container" id="stage"></div>
+</div>
+
+<script src="../js/common.js"></script>
+<script>
+const GRID_SIZE = 12, ROUND_TIME = 240;
+const DIRS = [[0,1],[0,-1],[1,0],[-1,0],[1,1],[1,-1],[-1,1],[-1,-1]];
+const AR_FILLER = 'ابتثجحخدذرزسشصضطظعغفقكلمنهوي'.split('');
+let sb, players, grid, wordsInfo, selStart, timerInt, timeLeft, foundCount;
+
+function init(){
+  const stage = document.getElementById('stage');
+  stage.innerHTML = `<div class="empty-state"><div class="emoji">🔠</div><h3>هيّئ اللعبة</h3><p>تحتاج بنك أسئلة فيه إجابات نصية قصيرة (٥ كلمات على الأقل، بدون مسافات يُفضَّل).</p>
+    <button class="btn btn-primary" id="btn-setup">ابدأ الإعداد 🎮</button></div>`;
+  document.getElementById('btn-setup').addEventListener('click', openSetup);
+  openSetup();
+}
+function openSetup(){
+  EGL.openSetupModal({ title:'إعداد لغز الكلمات المخفية', allowIndividual:true, allowTeams:true, needQuestions:true }, startGame);
+}
+
+function normalizeWord(w){ return w.trim().replace(/[أإآ]/g,'ا').replace(/\s+/g,''); }
+
+function buildGrid(words){
+  const g = Array.from({length:GRID_SIZE}, ()=>Array(GRID_SIZE).fill(null));
+  const placed = [];
+  for(const w of words){
+    if(w.length > GRID_SIZE) continue;
+    let ok = false;
+    for(let attempt=0; attempt<60 && !ok; attempt++){
+      const dir = EGL.pick(DIRS);
+      const row0 = Math.floor(Math.random()*GRID_SIZE);
+      const col0 = Math.floor(Math.random()*GRID_SIZE);
+      const endRow = row0 + dir[0]*(w.length-1);
+      const endCol = col0 + dir[1]*(w.length-1);
+      if(endRow<0||endRow>=GRID_SIZE||endCol<0||endCol>=GRID_SIZE) continue;
+      let fits = true;
+      for(let i=0;i<w.length;i++){
+        const r = row0+dir[0]*i, c = col0+dir[1]*i;
+        if(g[r][c] !== null && g[r][c] !== w[i]){ fits = false; break; }
+      }
+      if(!fits) continue;
+      for(let i=0;i<w.length;i++){
+        const r = row0+dir[0]*i, c = col0+dir[1]*i;
+        g[r][c] = w[i];
+      }
+      placed.push({ word:w, start:[row0,col0], end:[endRow,endCol] });
+      ok = true;
+    }
+  }
+  for(let r=0;r<GRID_SIZE;r++) for(let c=0;c<GRID_SIZE;c++) if(g[r][c]===null) g[r][c] = EGL.pick(AR_FILLER);
+  return { grid: g, placed };
+}
+
+function startGame(cfg){
+  const bank = EGL.getBank(cfg.bankId);
+  const eligible = bank.questions.filter(q => q.answerText && normalizeWord(q.answerText).length >= 2 && normalizeWord(q.answerText).length <= GRID_SIZE);
+  const uniqueWords = Array.from(new Set(eligible.map(q=>normalizeWord(q.answerText))));
+  if(uniqueWords.length < 5){ EGL.toast('تحتاج هذه اللعبة ٥ كلمات مختلفة على الأقل (بدون مسافات، أقل من 12 حرفًا)'); return; }
+  const chosen = EGL.shuffle(uniqueWords).slice(0, 8).sort((a,b)=>b.length-a.length);
+
+  let build = buildGrid(chosen);
+  let tries = 0;
+  while(build.placed.length < Math.min(5, chosen.length) && tries < 5){ build = buildGrid(chosen); tries++; }
+  if(build.placed.length < 4){ EGL.toast('تعذّر توليد شبكة مناسبة، جرّب بنكًا فيه كلمات أقصر'); return; }
+
+  grid = build.grid;
+  wordsInfo = build.placed.map(p => ({...p, found:false}));
+  players = cfg.players;
+  foundCount = 0;
+  selStart = null;
+
+  const stage = document.getElementById('stage');
+  stage.innerHTML = `<div id="sb-wrap" class="scoreboard"></div>
+    <div class="timer-bar"><div id="timer-fill" style="width:100%"></div></div>
+    <p style="text-align:center; font-weight:800;" id="found-badge"></p>
+    <div class="ws-grid" id="grid" style="grid-template-columns: repeat(${GRID_SIZE}, 1fr);"></div>
+    <div class="ws-words" id="words-list"></div>`;
+  sb = new EGL.Scoreboard(document.getElementById('sb-wrap'), players);
+  renderGrid();
+  renderWordsList();
+  updateFoundBadge();
+
+  timeLeft = ROUND_TIME;
+  timerInt = setInterval(()=>{
+    timeLeft--;
+    const fill = document.getElementById('timer-fill');
+    if(fill) fill.style.width = Math.max(0,(timeLeft/ROUND_TIME*100))+'%';
+    if(timeLeft<=0){ clearInterval(timerInt); endGame(false); }
+  }, 1000);
+}
+
+function renderGrid(){
+  const gridEl = document.getElementById('grid');
+  gridEl.innerHTML = '';
+  for(let r=0;r<GRID_SIZE;r++){
+    for(let c=0;c<GRID_SIZE;c++){
+      const cell = document.createElement('div');
+      cell.className = 'ws-cell';
+      cell.textContent = grid[r][c];
+      cell.dataset.r = r; cell.dataset.c = c;
+      cell.addEventListener('click', ()=>cellClick(r,c,cell));
+      gridEl.appendChild(cell);
+    }
+  }
+}
+
+function renderWordsList(){
+  document.getElementById('words-list').innerHTML = wordsInfo.map(w=>`<span class="ws-word-chip ${w.found?'found':''}">${EGL.escapeHtml(w.word)}</span>`).join('');
+}
+function updateFoundBadge(){
+  document.getElementById('found-badge').textContent = `✅ ${foundCount} / ${wordsInfo.length} كلمة`;
+}
+
+function cellClick(r,c,cell){
+  if(cell.classList.contains('found')) return;
+  if(!selStart){
+    selStart = {r,c,el:cell};
+    cell.classList.add('selected');
+    return;
+  }
+  // خط مستقيم صالح إذا كان أفقيًا أو عموديًا أو قطريًا (فروق متساوية)
+  const validLine = selStart.r===r || selStart.c===c || Math.abs(r-selStart.r)===Math.abs(c-selStart.c);
+  let matched = null;
+  if(validLine){
+    for(const w of wordsInfo){
+      if(w.found) continue;
+      if((w.start[0]===selStart.r && w.start[1]===selStart.c && w.end[0]===r && w.end[1]===c) ||
+         (w.end[0]===selStart.r && w.end[1]===selStart.c && w.start[0]===r && w.start[1]===c)){
+        matched = w; break;
+      }
+    }
+  }
+  if(matched){
+    matched.found = true;
+    foundCount++;
+    markPath(matched);
+    updateFoundBadge();
+    renderWordsList();
+    EGL.beep('correct'); EGL.confetti(30);
+    creditFind(matched.word);
+    if(foundCount >= wordsInfo.length){ clearInterval(timerInt); setTimeout(()=>endGame(true), 900); }
+  } else {
+    EGL.beep('wrong');
+    selStart.el.classList.add('wrong-flash');
+    setTimeout(()=> selStart.el.classList.remove('wrong-flash','selected'), 350);
+  }
+  selStart = null;
+}
+
+function markPath(w){
+  const dr = Math.sign(w.end[0]-w.start[0]), dc = Math.sign(w.end[1]-w.start[1]);
+  const len = w.word.length;
+  for(let i=0;i<len;i++){
+    const r = w.start[0]+dr*i, c = w.start[1]+dc*i;
+    const el = document.querySelector(`.ws-cell[data-r="${r}"][data-c="${c}"]`);
+    if(el){ el.classList.remove('selected'); el.classList.add('found'); }
+  }
+}
+
+function creditFind(word){
+  if(players.length === 1){ sb.addScore(0, 10); return; }
+  const area = document.createElement('div');
+  area.className = 'qcard';
+  area.style.marginTop = '10px';
+  area.innerHTML = `<p>من وجد كلمة "${EGL.escapeHtml(word)}"؟</p>
+    <div style="display:flex; gap:8px; justify-content:center; flex-wrap:wrap;">
+      ${players.map((p,i)=>`<button class="btn btn-accent btn-sm" data-i="${i}">${p.emoji} ${EGL.escapeHtml(p.name)}</button>`).join('')}
+    </div>`;
+  document.getElementById('stage').appendChild(area);
+  area.querySelectorAll('button').forEach(btn=>btn.addEventListener('click', ()=>{
+    sb.addScore(parseInt(btn.dataset.i), 10);
+    area.remove();
+  }));
+}
+
+function endGame(allFound){
+  clearInterval(timerInt);
+  if(allFound){ EGL.confetti(120); EGL.beep('win'); }
+  const ranking = sb.ranking();
+  const stage = document.getElementById('stage');
+  stage.innerHTML = `<div class="qcard">
+    <div style="font-size:3rem;">${allFound?'🏆':'⏱'}</div>
+    <h2>${allFound?'وجدتم كل الكلمات!':'انتهى الوقت!'}</h2>
+    ${!allFound?`<p>الكلمات المتبقية: ${wordsInfo.filter(w=>!w.found).map(w=>w.word).join('، ')}</p>`:''}
+    <div class="scoreboard" style="justify-content:center;">
+      ${ranking.map((p,r)=>`<div class="player-chip ${r===0?'active':''}"><div style="font-size:1.4rem;">${r===0?'🥇':r===1?'🥈':r===2?'🥉':p.emoji}</div><div class="pname">${EGL.escapeHtml(p.name)}</div><div class="pscore">${p.score}</div></div>`).join('')}
+    </div>
+    <div style="display:flex; gap:10px; justify-content:center; margin-top:16px;">
+      <button class="btn btn-primary" onclick="location.reload()">🔁 لعب مرة أخرى</button>
+      <a class="btn btn-outline" href="../index.html">🏠 الألعاب الأخرى</a>
+    </div>
+  </div>`;
+}
+
+init();
+</script>
+</body>
+</html>
