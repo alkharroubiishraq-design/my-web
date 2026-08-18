@@ -1,0 +1,183 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>مسابقة التعليق المضحك — ساحة الصف</title>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>🖼️</text></svg>">
+<link rel="stylesheet" href="../css/style.css">
+<style>
+  .scene-card{ text-align:center; font-size:4rem; background: var(--surface-2); border-radius:18px; padding:26px 10px; margin: 14px auto; max-width:420px; box-shadow: var(--shadow); }
+  .cap-zones{ display:grid; gap:12px; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); width:100%; max-width:800px; margin: 14px auto; }
+  .cap-zone{ background: var(--surface-2); border-radius:14px; padding:10px; text-align:center; box-shadow: var(--shadow); }
+  .cap-zone input{ width:88%; padding:9px; border-radius:8px; border:none; background: var(--surface); color:#fff; font-family:inherit; font-weight:700; text-align:center; }
+  .cap-zone .cname{ font-weight:900; margin-bottom:6px; }
+  .cap-zone.submitted{ opacity:.7; }
+  .caption-reveal{ background: var(--surface-2); border-radius:12px; padding:12px 16px; margin: 8px auto; max-width:560px; text-align:center; cursor:pointer; border:3px solid transparent; transition:.15s; }
+  .caption-reveal:hover{ border-color: var(--primary); }
+  .caption-reveal .ctext{ font-weight:800; font-size:1.05rem; }
+  .caption-reveal .cby{ font-size:.72rem; color: var(--text-dim); margin-top:4px; }
+  .caption-reveal .cvotes{ font-weight:900; color: var(--accent-2); margin-top:4px; }
+  .caption-reveal.voted{ border-color: var(--accent-2); }
+  .caption-reveal.top{ border-color: var(--success); box-shadow: 0 0 0 3px rgba(43,224,138,.3); }
+</style>
+</head>
+<body>
+<nav class="topnav"><div class="container">
+  <a class="brand" href="../index.html"><span class="logo">🎲</span> ساحة الصف</a>
+  <div class="navlinks"><a href="../index.html">الرئيسية</a><a href="../index.html#games">الألعاب</a><a href="../questions.html">بنك الأسئلة</a></div>
+</div></nav>
+
+<div class="game-shell">
+  <div class="game-header container">
+    <h1>🖼️ مسابقة التعليق المضحك</h1>
+    <p>مشهد رموز تعبيرية غريب يظهر للجميع — اكتبوا أطرف تعليق عليه، ثم صوّتوا لأفضل تعليق غير تعليقكم!</p>
+  </div>
+  <div class="game-stage container" id="stage"></div>
+</div>
+
+<script src="../js/common.js"></script>
+<script>
+const SCENES = [
+  '🐱💻😱', '🦖🍕😂', '👽🎤🎶', '🐸☕📚', '🦆🕶️😎', '🐘🩰✨', '🦉📱🌙', '🐢🚀💨',
+  '🐔👑😏', '🐼🎮😤', '🦁💅😌', '🐧🔥🍳', '🐢⚡🏃', '🐈‍⬛🧙‍♂️✨', '🦒📏😳', '🐙🎨🖌️',
+];
+let teams, round, ROUNDS, wins, captions, votes, votedBy, scene;
+
+function init(){
+  const stage = document.getElementById('stage');
+  stage.innerHTML = `<div class="empty-state"><div class="emoji">🖼️</div><h3>هيّئ اللعبة</h3><p>لا تحتاج بنك أسئلة — فقط فرق أو لاعبون يتنافسون بالإبداع والفكاهة.</p>
+    <button class="btn btn-primary" id="btn-setup">ابدأ الإعداد 🎮</button></div>`;
+  document.getElementById('btn-setup').addEventListener('click', openSetup);
+  openSetup();
+}
+function openSetup(){
+  EGL.openSetupModal({ title:'إعداد مسابقة التعليق المضحك', allowIndividual:true, allowTeams:true, skipBank:true, minPlayers:2, maxPlayers:6 }, startGame);
+}
+
+function startGame(cfg){
+  teams = cfg.players;
+  wins = teams.map(()=>0);
+  round = 0;
+  ROUNDS = 4;
+  const stage = document.getElementById('stage');
+  stage.innerHTML = `<div class="badge" id="round-badge" style="display:block; text-align:center; margin-bottom:8px;"></div><div id="game-area"></div>`;
+  nextRound();
+}
+
+function nextRound(){
+  round++;
+  if(round > ROUNDS){ return showResults(); }
+  document.getElementById('round-badge').textContent = `🖼️ الجولة ${round} / ${ROUNDS}`;
+  renderCaptionPhase();
+}
+
+function renderCaptionPhase(){
+  scene = EGL.pick(SCENES);
+  captions = teams.map(()=>null);
+  const area = document.getElementById('game-area');
+  area.innerHTML = `
+    <div class="scene-card">${scene}</div>
+    <p class="hint" style="text-align:center;">ماذا يحدث في هذا المشهد؟ اكتبوا أطرف تعليق!</p>
+    <div class="cap-zones" id="cap-zones"></div>`;
+  const zones = document.getElementById('cap-zones');
+  zones.innerHTML = teams.map((t,i)=>`
+    <div class="cap-zone" id="czone-${i}">
+      <div class="cname">${t.emoji} ${EGL.escapeHtml(t.name)}</div>
+      <input type="text" id="cap-${i}" placeholder="تعليقكم..." maxlength="60">
+      <div style="margin-top:6px;"><button class="btn btn-accent btn-sm" data-i="${i}">✅ إرسال</button></div>
+    </div>`).join('');
+  zones.querySelectorAll('[data-i]').forEach(btn=>{
+    btn.addEventListener('click', ()=>submitCaption(parseInt(btn.dataset.i)));
+  });
+}
+
+function submitCaption(ti){
+  if(captions[ti] !== null) return;
+  const val = document.getElementById('cap-'+ti).value.trim();
+  if(!val) return;
+  captions[ti] = val;
+  document.getElementById('czone-'+ti).classList.add('submitted');
+  document.querySelectorAll(`#czone-${ti} input, #czone-${ti} button`).forEach(el=>el.disabled=true);
+  EGL.beep('tick');
+  if(captions.every(c=>c!==null)) setTimeout(startVoting, 500);
+}
+
+function startVoting(){
+  votes = teams.map(()=>0);
+  votedBy = teams.map(()=>false);
+  const area = document.getElementById('game-area');
+  area.innerHTML = `
+    <div class="scene-card">${scene}</div>
+    <p class="hint" style="text-align:center;">صوّتوا لأطرف تعليق! (اضغط الفريق الذي يريد التصويت، ثم اختر تعليقًا غير تعليقه)</p>
+    <div id="reveal-list"></div>
+    <div class="cap-zones" id="voter-select" style="margin-top:14px;"></div>`;
+  renderRevealList();
+  const sel = document.getElementById('voter-select');
+  sel.innerHTML = teams.map((t,i)=>`<div class="cap-zone" id="voter-${i}"><div class="cname">${t.emoji} ${EGL.escapeHtml(t.name)}</div><button class="btn btn-outline btn-sm" data-voter="${i}">🗳️ أنا أصوّت الآن</button></div>`).join('');
+  sel.querySelectorAll('[data-voter]').forEach(btn=>{
+    btn.addEventListener('click', ()=>{ window._activeVoter = parseInt(btn.dataset.voter); EGL.toast(`${teams[window._activeVoter].name}، اختاروا تعليقًا للتصويت له`); });
+  });
+}
+
+function renderRevealList(){
+  const list = document.getElementById('reveal-list');
+  list.innerHTML = teams.map((t,i)=>`
+    <div class="caption-reveal" data-i="${i}">
+      <div class="ctext">"${EGL.escapeHtml(captions[i])}"</div>
+      <div class="cby">${t.emoji} ${EGL.escapeHtml(t.name)}</div>
+      <div class="cvotes">🗳️ ${votes[i]} صوت</div>
+    </div>`).join('');
+  list.querySelectorAll('.caption-reveal').forEach(el=>{
+    el.addEventListener('click', ()=>castVote(parseInt(el.dataset.i)));
+  });
+}
+
+function castVote(targetI){
+  const voter = window._activeVoter;
+  if(voter === undefined || voter === null){ EGL.toast('اختاروا أولًا أي فريق سيصوّت'); return; }
+  if(votedBy[voter]){ EGL.toast('صوّت هذا الفريق بالفعل'); return; }
+  if(targetI === voter){ EGL.toast('لا يمكن التصويت لتعليقكم أنتم!'); return; }
+  votes[targetI]++;
+  votedBy[voter] = true;
+  window._activeVoter = null;
+  EGL.beep('tick');
+  renderRevealList();
+  const voterBtn = document.querySelector(`#voter-${voter} button`);
+  if(voterBtn){ voterBtn.disabled = true; voterBtn.textContent = '✅ صوّت'; }
+  if(votedBy.every(Boolean)) setTimeout(finishVoting, 900);
+}
+
+function finishVoting(){
+  const maxVotes = Math.max(...votes);
+  const winners = teams.map((_,i)=>i).filter(i=>votes[i]===maxVotes);
+  winners.forEach(i=>wins[i]++);
+  document.querySelectorAll('.caption-reveal').forEach(el=>{
+    if(winners.includes(parseInt(el.dataset.i))) el.classList.add('top');
+  });
+  EGL.confetti(60); EGL.beep('win');
+  const names = winners.map(i=>teams[i].name).join(' و');
+  EGL.toast(`🏆 أطرف تعليق هذه الجولة لـ ${names}!`);
+  setTimeout(nextRound, 2400);
+}
+
+function showResults(){
+  EGL.confetti(120); EGL.beep('win');
+  const ranking = teams.map((t,i)=>({...t, score:wins[i]})).sort((a,b)=>b.score-a.score);
+  const stage = document.getElementById('stage');
+  stage.innerHTML = `<div class="qcard">
+    <div style="font-size:3rem;">🏆</div><h2>انتهت المسابقة!</h2>
+    <div class="scoreboard" style="justify-content:center;">
+      ${ranking.map((p,r)=>`<div class="player-chip ${r===0?'active':''}"><div style="font-size:1.4rem;">${r===0?'🥇':r===1?'🥈':r===2?'🥉':p.emoji}</div><div class="pname">${EGL.escapeHtml(p.name)}</div><div class="pscore">${p.score} 🏆</div></div>`).join('')}
+    </div>
+    <div style="display:flex; gap:10px; justify-content:center; margin-top:16px;">
+      <button class="btn btn-primary" onclick="location.reload()">🔁 لعب مرة أخرى</button>
+      <a class="btn btn-outline" href="../index.html">🏠 الألعاب الأخرى</a>
+    </div>
+  </div>`;
+}
+
+init();
+</script>
+</body>
+</html>

@@ -1,0 +1,145 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>الكراسي الموسيقية — ساحة الصف</title>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>🪑</text></svg>">
+<link rel="stylesheet" href="../css/style.css">
+<style>
+  .players-row{ display:flex; flex-wrap:wrap; gap:10px; justify-content:center; margin: 14px 0; }
+  .pchip{ background: var(--surface-2); border-radius:14px; padding:10px 12px; text-align:center; min-width:78px; border:3px solid transparent; opacity:.9; transition:.2s; }
+  .pchip.out{ opacity:.25; text-decoration:line-through; }
+  .pchip.seated{ border-color: var(--success); }
+  .pchip .pemoji{ font-size:1.7rem; }
+  .pchip .ptime{ font-size:.68rem; color: var(--accent-2); font-weight:800; margin-top:2px; min-height:12px; }
+  .music-stage{ text-align:center; padding: 26px 10px; }
+  .music-emoji{ font-size:5rem; display:inline-block; }
+  .music-emoji.playing{ animation: notespin 1s linear infinite; }
+  @keyframes notespin{ 0%{ transform: rotate(-10deg) scale(1); } 50%{ transform: rotate(10deg) scale(1.1); } 100%{ transform: rotate(-10deg) scale(1); } }
+  .sit-grid{ display:flex; flex-wrap:wrap; gap:12px; justify-content:center; margin-top: 16px; }
+  .sit-btn{ font-size:1.05rem; padding:16px 20px; }
+</style>
+</head>
+<body>
+<nav class="topnav"><div class="container">
+  <a class="brand" href="../index.html"><span class="logo">🎲</span> ساحة الصف</a>
+  <div class="navlinks"><a href="../index.html">الرئيسية</a><a href="../index.html#games">الألعاب</a><a href="../questions.html">بنك الأسئلة</a></div>
+</div></nav>
+
+<div class="game-shell">
+  <div class="game-header container">
+    <h1>🪑 الكراسي الموسيقية</h1>
+    <p>الموسيقى تعزف... وحين تتوقف فجأة اضغطوا زر "اجلس" بأسرع ما يمكن — الأبطأ يخرج من اللعبة في كل جولة!</p>
+  </div>
+  <div class="game-stage container" id="stage"></div>
+</div>
+
+<script src="../js/common.js"></script>
+<script>
+let players, alive, clicked, stopTime, musicTimer, resolveTimer;
+
+function init(){
+  const stage = document.getElementById('stage');
+  stage.innerHTML = `<div class="empty-state"><div class="emoji">🪑</div><h3>هيّئ اللعبة</h3><p>لا تحتاج بنك أسئلة — مثالية لـ ٣ لاعبين أو أكثر حول جهاز واحد أو الشاشة التفاعلية.</p>
+    <button class="btn btn-primary" id="btn-setup">ابدأ الإعداد 🎮</button></div>`;
+  document.getElementById('btn-setup').addEventListener('click', openSetup);
+  openSetup();
+}
+function openSetup(){
+  EGL.openSetupModal({ title:'إعداد الكراسي الموسيقية', allowIndividual:true, allowTeams:false, skipBank:true, minPlayers:3, maxPlayers:8 }, startGame);
+}
+
+function startGame(cfg){
+  players = cfg.players;
+  alive = players.map((_,i)=>i);
+  const stage = document.getElementById('stage');
+  stage.innerHTML = `<div class="players-row" id="players-row"></div><div id="round-area"></div>`;
+  renderPlayers();
+  startMusicRound();
+}
+
+function renderPlayers(){
+  const wrap = document.getElementById('players-row');
+  wrap.innerHTML = players.map((p,i)=>`
+    <div class="pchip ${!alive.includes(i)?'out':''}" id="pchip-${i}">
+      <div class="pemoji">${p.emoji}</div>
+      <div style="font-size:.8rem; font-weight:800;">${EGL.escapeHtml(p.name)}</div>
+      <div class="ptime" id="ptime-${i}"></div>
+    </div>`).join('');
+}
+
+function startMusicRound(){
+  clearTimeout(musicTimer); clearTimeout(resolveTimer);
+  const chairs = alive.length - 1;
+  const area = document.getElementById('round-area');
+  area.innerHTML = `
+    <div class="qcard music-stage">
+      <div class="music-emoji playing" id="music-emoji">🎵</div>
+      <p class="hint">🪑 عدد الكراسي هذه الجولة: ${chairs} — استعدّوا للمفاجأة!</p>
+    </div>`;
+  const delay = 2500 + Math.random()*3000;
+  musicTimer = setTimeout(stopMusic, delay);
+}
+
+function stopMusic(){
+  const emoji = document.getElementById('music-emoji');
+  if(emoji){ emoji.classList.remove('playing'); emoji.textContent = '🚨'; }
+  EGL.beep('wrong');
+  clicked = {};
+  stopTime = performance.now();
+  const area = document.getElementById('round-area');
+  const sitRow = document.createElement('div');
+  sitRow.className = 'sit-grid';
+  sitRow.id = 'sit-grid';
+  sitRow.innerHTML = alive.map(i=>`<button class="btn btn-gold sit-btn" data-i="${i}" id="sitbtn-${i}">${players[i].emoji} اجلس!</button>`).join('');
+  area.querySelector('.qcard').appendChild(sitRow);
+  sitRow.querySelectorAll('button').forEach(btn=>btn.addEventListener('click', ()=>sitClick(parseInt(btn.dataset.i))));
+  resolveTimer = setTimeout(resolveRound, 2000);
+}
+
+function sitClick(i){
+  if(clicked[i] !== undefined) return;
+  clicked[i] = performance.now() - stopTime;
+  const btn = document.getElementById('sitbtn-'+i);
+  if(btn){ btn.disabled = true; btn.textContent = `✅ ${(clicked[i]/1000).toFixed(2)}ث`; }
+  const chip = document.getElementById('ptime-'+i);
+  if(chip) chip.textContent = `${(clicked[i]/1000).toFixed(2)}ث`;
+  document.getElementById('pchip-'+i).classList.add('seated');
+  EGL.beep('tick');
+}
+
+function resolveRound(){
+  clearTimeout(resolveTimer);
+  document.querySelectorAll('.sit-grid button').forEach(b=>b.disabled=true);
+  let slowest = -1, worst = -1;
+  alive.forEach(i=>{
+    const t = clicked[i] === undefined ? Infinity : clicked[i];
+    if(t > worst){ worst = t; slowest = i; }
+  });
+  alive = alive.filter(i => i !== slowest);
+  EGL.toast(`❌ ${players[slowest].name} كان الأبطأ وخرج من اللعبة!`);
+  renderPlayers();
+  setTimeout(()=>{
+    if(alive.length <= 1){ return endGame(alive[0]); }
+    startMusicRound();
+  }, 1700);
+}
+
+function endGame(winnerIdx){
+  EGL.confetti(150); EGL.beep('win');
+  const stage = document.getElementById('stage');
+  stage.innerHTML = `<div class="qcard">
+    <div style="font-size:3rem;">🪑</div>
+    <h2>${players[winnerIdx].emoji} ${EGL.escapeHtml(players[winnerIdx].name)} صاحب الكرسي الأخير! 🏆</h2>
+    <div style="display:flex; gap:10px; justify-content:center; margin-top:16px;">
+      <button class="btn btn-primary" onclick="location.reload()">🔁 لعب مرة أخرى</button>
+      <a class="btn btn-outline" href="../index.html">🏠 الألعاب الأخرى</a>
+    </div>
+  </div>`;
+}
+
+init();
+</script>
+</body>
+</html>

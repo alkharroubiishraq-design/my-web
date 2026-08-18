@@ -1,0 +1,250 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>كسر الشيفرة — ساحة الصف</title>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>🔐</text></svg>">
+<link rel="stylesheet" href="../css/style.css">
+<style>
+  .cb-zones{ display:grid; gap:14px; grid-template-columns: repeat(auto-fit, minmax(230px, 1fr)); width:100%; max-width:940px; margin: 10px auto; }
+  .cb-zone{ background: var(--surface-2); border-radius:14px; padding:12px; box-shadow: var(--shadow); border:2px solid rgba(255,255,255,.08); text-align:center; }
+  .cb-zone.cracked{ border-color: var(--success); box-shadow: 0 0 0 3px rgba(43,224,138,.3); }
+  .cb-zname{ font-weight:900; margin-bottom:4px; }
+  .cb-tokens{ font-size:.78rem; color: var(--accent-2); font-weight:800; margin-bottom:8px; }
+  .cb-slots{ display:flex; gap:6px; justify-content:center; margin-bottom:8px; }
+  .cb-slot{ width:34px; height:34px; border-radius:8px; background: var(--surface); display:flex; align-items:center; justify-content:center; font-size:1.2rem; border:2px dashed rgba(255,255,255,.15); }
+  .cb-palette{ display:flex; gap:4px; justify-content:center; flex-wrap:wrap; margin-bottom:8px; }
+  .cb-palette button{ font-size:1.1rem; padding:4px 7px; border-radius:8px; border:none; background: var(--surface); cursor:pointer; }
+  .cb-actions{ display:flex; gap:6px; justify-content:center; flex-wrap:wrap; }
+  .cb-history{ margin-top:8px; display:flex; flex-direction:column; gap:4px; max-height:140px; overflow-y:auto; }
+  .cb-hrow{ font-size:.72rem; background: var(--surface); border-radius:6px; padding:3px 6px; display:flex; justify-content:space-between; gap:6px; }
+  .req-banner{ text-align:center; margin: 6px 0 16px; }
+</style>
+</head>
+<body>
+<nav class="topnav"><div class="container">
+  <a class="brand" href="../index.html"><span class="logo">🎲</span> ساحة الصف</a>
+  <div class="navlinks"><a href="../index.html">الرئيسية</a><a href="../index.html#games">الألعاب</a><a href="../questions.html">بنك الأسئلة</a></div>
+</div></nav>
+
+<div class="game-shell">
+  <div class="game-header container">
+    <h1>🔐 كسر الشيفرة</h1>
+    <p>لكل فريق شيفرة سرية من ٤ رموز — أجيبوا لتكسبوا محاولة تخمين، واستخدموا التغذية الراجعة (⚫ مكان وموقع صحيحان، ⚪ رمز صحيح بمكان خاطئ) لتكسروها أولًا!</p>
+  </div>
+  <div class="game-stage container" id="stage"></div>
+</div>
+
+<script src="../js/common.js"></script>
+<script>
+const SYMBOLS = ['🔴','🟡','🟢','🔵','🟣','🟠'];
+const CODE_LEN = 4;
+const MAX_ATTEMPTS = 8;
+let teams, questions, qIdx, secrets, tokens, attemptsUsed, current, history, cracked, bestBlack, requester, gameOver=false;
+
+function init(){
+  const stage = document.getElementById('stage');
+  stage.innerHTML = `<div class="empty-state"><div class="emoji">🔐</div><h3>هيّئ اللعبة</h3><p>لكل فريق شيفرة سرية خاصة به — أول فريق يكسر شيفرته يفوز!</p>
+    <button class="btn btn-primary" id="btn-setup">ابدأ الإعداد 🎮</button></div>`;
+  document.getElementById('btn-setup').addEventListener('click', openSetup);
+  openSetup();
+}
+function openSetup(){
+  EGL.openSetupModal({ title:'إعداد كسر الشيفرة', allowIndividual:false, allowTeams:true, needQuestions:true, qType:['mcq','tf'], minPlayers:2, maxPlayers:4 }, startGame);
+}
+
+function randCode(){
+  return Array.from({length:CODE_LEN}, ()=> SYMBOLS[Math.floor(Math.random()*SYMBOLS.length)]);
+}
+
+function feedback(secret, guess){
+  let black = 0;
+  const secLeft = [], guessLeft = [];
+  for(let i=0;i<CODE_LEN;i++){
+    if(guess[i] === secret[i]) black++;
+    else { secLeft.push(secret[i]); guessLeft.push(guess[i]); }
+  }
+  let white = 0;
+  const counts = {};
+  secLeft.forEach(s=> counts[s] = (counts[s]||0)+1);
+  guessLeft.forEach(g=>{ if(counts[g] > 0){ white++; counts[g]--; } });
+  return { black, white };
+}
+
+function startGame(cfg){
+  const bank = EGL.getBank(cfg.bankId);
+  questions = EGL.shuffle(bank.questions.filter(q=>q.type==='mcq'||q.type==='tf'));
+  if(!questions.length){ EGL.toast('لا توجد أسئلة اختيار/صح-خطأ في هذا البنك'); return; }
+  qIdx = 0;
+  teams = cfg.players;
+  gameOver = false;
+  secrets = teams.map(()=>randCode());
+  tokens = teams.map(()=>0);
+  attemptsUsed = teams.map(()=>0);
+  current = teams.map(()=>[]);
+  history = teams.map(()=>[]);
+  cracked = teams.map(()=>false);
+  bestBlack = teams.map(()=>0);
+  requester = null;
+
+  const stage = document.getElementById('stage');
+  stage.innerHTML = `<div id="req-area"></div><div class="cb-zones" id="cb-zones"></div>`;
+  renderZones();
+}
+
+function renderZones(){
+  const wrap = document.getElementById('cb-zones');
+  wrap.innerHTML = teams.map((t,ti)=>`
+    <div class="cb-zone ${cracked[ti]?'cracked':''}" id="cbzone-${ti}">
+      <div class="cb-zname">${t.emoji} ${EGL.escapeHtml(t.name)}</div>
+      <div class="cb-tokens" id="cbtokens-${ti}">🔓 محاولات جاهزة: ${tokens[ti]} — استُخدم ${attemptsUsed[ti]}/${MAX_ATTEMPTS}</div>
+      <div class="cb-slots" id="cbslots-${ti}"></div>
+      <div class="cb-palette" id="cbpalette-${ti}">${SYMBOLS.map(s=>`<button data-ti="${ti}" data-s="${s}">${s}</button>`).join('')}</div>
+      <div class="cb-actions">
+        <button class="btn btn-outline btn-sm" data-clear="${ti}">↩️ مسح</button>
+        <button class="btn btn-accent btn-sm" data-guess="${ti}">✅ خمّن</button>
+        <button class="btn btn-gold btn-sm" data-req="${ti}">🔓 اطلب محاولة</button>
+      </div>
+      <div class="cb-history" id="cbhist-${ti}"></div>
+    </div>`).join('');
+  teams.forEach((_,ti)=>renderSlots(ti));
+  wrap.querySelectorAll('[data-s]').forEach(btn=>btn.addEventListener('click', ()=>pickSymbol(parseInt(btn.dataset.ti), btn.dataset.s)));
+  wrap.querySelectorAll('[data-clear]').forEach(btn=>btn.addEventListener('click', ()=>{ current[parseInt(btn.dataset.clear)] = []; renderSlots(parseInt(btn.dataset.clear)); }));
+  wrap.querySelectorAll('[data-guess]').forEach(btn=>btn.addEventListener('click', ()=>submitGuess(parseInt(btn.dataset.guess))));
+  wrap.querySelectorAll('[data-req]').forEach(btn=>btn.addEventListener('click', ()=>requestToken(parseInt(btn.dataset.req))));
+}
+
+function renderSlots(ti){
+  const el = document.getElementById('cbslots-'+ti);
+  if(!el) return;
+  el.innerHTML = Array.from({length:CODE_LEN}, (_,i)=>`<div class="cb-slot">${current[ti][i] || ''}</div>`).join('');
+}
+
+function pickSymbol(ti, s){
+  if(gameOver || cracked[ti]) return;
+  if(current[ti].length >= CODE_LEN) return;
+  current[ti].push(s);
+  renderSlots(ti);
+}
+
+function requestToken(ti){
+  if(gameOver || cracked[ti] || requester !== null) return;
+  requester = ti;
+  document.querySelectorAll('[data-req]').forEach(b=>b.disabled = true);
+  if(qIdx >= questions.length){ questions = EGL.shuffle(questions); qIdx = 0; }
+  const q = questions[qIdx++];
+  window._cbQ = q;
+  const area = document.getElementById('req-area');
+  area.innerHTML = `
+    <div class="qcard req-banner">
+      <div class="qmeta"><span class="badge">🔓 ${teams[ti].emoji} ${EGL.escapeHtml(teams[ti].name)} يطلب محاولة</span></div>
+      <div class="qtext">${EGL.escapeHtml(q.text)}</div>
+      <div class="options" id="req-opts">${q.options.map((o,oi)=>`<button class="option-btn" data-oi="${oi}">${EGL.escapeHtml(o)}</button>`).join('')}</div>
+    </div>`;
+  area.querySelectorAll('.option-btn').forEach(btn=>btn.addEventListener('click', ()=>answerRequest(parseInt(btn.dataset.oi), ti, q)));
+}
+
+function answerRequest(oi, ti, q){
+  const opts = document.querySelectorAll('#req-opts .option-btn');
+  opts.forEach(b=>b.disabled=true);
+  opts[oi].classList.add(oi===q.correctIndex?'correct':'wrong');
+  opts[q.correctIndex].classList.add('correct');
+  if(oi === q.correctIndex){
+    tokens[ti]++;
+    EGL.beep('correct');
+    EGL.toast(`✅ ${teams[ti].name} كسب محاولة تخمين!`);
+  } else {
+    EGL.beep('wrong');
+    EGL.toast(`❌ إجابة خاطئة — لا محاولة هذه المرة`);
+  }
+  document.getElementById('cbtokens-'+ti).textContent = `🔓 محاولات جاهزة: ${tokens[ti]} — استُخدم ${attemptsUsed[ti]}/${MAX_ATTEMPTS}`;
+  setTimeout(()=>{
+    document.getElementById('req-area').innerHTML = '';
+    requester = null;
+    document.querySelectorAll('[data-req]').forEach(b=>b.disabled = false);
+  }, 1600);
+}
+
+function submitGuess(ti){
+  if(gameOver || cracked[ti]) return;
+  if(current[ti].length < CODE_LEN){ EGL.toast('أكملوا ٤ رموز أولًا'); return; }
+  if(tokens[ti] <= 0){ EGL.toast('تحتاجون محاولة جاهزة — أجيبوا سؤالًا أولًا'); return; }
+  tokens[ti]--;
+  attemptsUsed[ti]++;
+  const guess = current[ti].slice();
+  const fb = feedback(secrets[ti], guess);
+  bestBlack[ti] = Math.max(bestBlack[ti], fb.black);
+  history[ti].push({ guess, fb });
+  current[ti] = [];
+  renderSlots(ti);
+  document.getElementById('cbtokens-'+ti).textContent = `🔓 محاولات جاهزة: ${tokens[ti]} — استُخدم ${attemptsUsed[ti]}/${MAX_ATTEMPTS}`;
+  const hist = document.getElementById('cbhist-'+ti);
+  const row = document.createElement('div');
+  row.className = 'cb-hrow';
+  row.innerHTML = `<span>${guess.join(' ')}</span><span>⚫${fb.black} ⚪${fb.white}</span>`;
+  hist.appendChild(row);
+  hist.scrollTop = hist.scrollHeight;
+  EGL.beep('tick');
+  if(fb.black === CODE_LEN){
+    cracked[ti] = true;
+    return winGame(ti);
+  }
+  if(attemptsUsed[ti] >= MAX_ATTEMPTS){
+    EGL.toast(`⛔ نفدت محاولات ${teams[ti].name}!`);
+    document.querySelectorAll(`#cbzone-${ti} button`).forEach(b=>b.disabled=true);
+    checkAllExhausted();
+  }
+}
+
+function checkAllExhausted(){
+  if(teams.every((_,i)=> cracked[i] || attemptsUsed[i] >= MAX_ATTEMPTS)){
+    endNoWinner();
+  }
+}
+
+function winGame(ti){
+  gameOver = true;
+  EGL.confetti(160); EGL.beep('win');
+  document.getElementById('cbzone-'+ti).classList.add('cracked');
+  document.querySelectorAll('.cb-zone button').forEach(b=>b.disabled=true);
+  const stage = document.getElementById('stage');
+  const banner = document.createElement('div');
+  banner.className = 'qcard';
+  banner.style.marginTop = '18px';
+  banner.innerHTML = `
+    <div style="font-size:3rem;">🏆</div>
+    <h2>${teams[ti].emoji} ${EGL.escapeHtml(teams[ti].name)} كسر الشيفرة أولًا! 🎉</h2>
+    <p class="hint">الشيفرة كانت: ${secrets[ti].join(' ')}</p>
+    <div style="display:flex; gap:10px; justify-content:center; margin-top:16px;">
+      <button class="btn btn-primary" onclick="location.reload()">🔁 لعب مرة أخرى</button>
+      <a class="btn btn-outline" href="../index.html">🏠 الألعاب الأخرى</a>
+    </div>`;
+  stage.appendChild(banner);
+}
+
+function endNoWinner(){
+  gameOver = true;
+  EGL.beep('win');
+  document.querySelectorAll('.cb-zone button').forEach(b=>b.disabled=true);
+  const bestI = bestBlack.indexOf(Math.max(...bestBlack));
+  const stage = document.getElementById('stage');
+  const banner = document.createElement('div');
+  banner.className = 'qcard';
+  banner.style.marginTop = '18px';
+  banner.innerHTML = `
+    <div style="font-size:3rem;">🔐</div>
+    <h2>انتهت المحاولات! لم يكسر أحد الشيفرة بالكامل</h2>
+    <p class="hint">الأقرب: ${teams[bestI].emoji} ${EGL.escapeHtml(teams[bestI].name)} (⚫${bestBlack[bestI]}/${CODE_LEN})</p>
+    ${teams.map((t,i)=>`<p class="hint">شيفرة ${t.name}: ${secrets[i].join(' ')}</p>`).join('')}
+    <div style="display:flex; gap:10px; justify-content:center; margin-top:16px;">
+      <button class="btn btn-primary" onclick="location.reload()">🔁 لعب مرة أخرى</button>
+      <a class="btn btn-outline" href="../index.html">🏠 الألعاب الأخرى</a>
+    </div>`;
+  stage.appendChild(banner);
+}
+
+init();
+</script>
+</body>
+</html>
