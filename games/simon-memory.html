@@ -1,0 +1,187 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>ذاكرة الألوان — ساحة الصف</title>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>🎨</text></svg>">
+<link rel="stylesheet" href="../css/style.css">
+<style>
+  .simon-grid{ display:grid; grid-template-columns: 1fr 1fr; grid-template-rows: 1fr 1fr; gap:14px; width: min(360px, 88vw); aspect-ratio:1/1; margin: 18px auto; }
+  .simon-tile{ border-radius:20px; cursor:pointer; opacity:.55; transition: opacity .15s, transform .1s; border:none; }
+  .simon-tile:active{ transform: scale(.96); }
+  .simon-tile.flash{ opacity:1; box-shadow: 0 0 0 6px rgba(255,255,255,.25); }
+  .simon-tile:disabled{ cursor:default; }
+  .simon-tile.t0{ background:#ff5c5c; border-radius: 20px 6px 6px 6px; }
+  .simon-tile.t1{ background:#3dd68c; border-radius: 6px 20px 6px 6px; }
+  .simon-tile.t2{ background:#4aa8ff; border-radius: 6px 6px 6px 20px; }
+  .simon-tile.t3{ background:#ffd23f; border-radius: 6px 6px 20px 6px; }
+  .round-badge{ text-align:center; font-size:1.1rem; font-weight:900; color: var(--accent-2); margin-bottom:6px; }
+  .turn-badge{ text-align:center; font-weight:800; margin-bottom:4px; }
+</style>
+</head>
+<body>
+<nav class="topnav"><div class="container">
+  <a class="brand" href="../index.html"><span class="logo">🎲</span> ساحة الصف</a>
+  <div class="navlinks"><a href="../index.html">الرئيسية</a><a href="../index.html#games">الألعاب</a><a href="../questions.html">بنك الأسئلة</a></div>
+</div></nav>
+
+<div class="game-shell">
+  <div class="game-header container">
+    <h1>🎨 ذاكرة الألوان</h1>
+    <p>راقب تسلسل الألوان جيدًا ثم أعده كما هو — يزداد طولًا كل جولة، ومن يخطئ يخرج حتى يبقى بطل واحد!</p>
+  </div>
+  <div class="game-stage container" id="stage"></div>
+</div>
+
+<script src="../js/common.js"></script>
+<script>
+const TILE_NAMES = ['أحمر','أخضر','أزرق','أصفر'];
+let players, alive, sequence, round, turnList, turnPtr, inputIdx, waitingInput=false;
+
+function init(){
+  const stage = document.getElementById('stage');
+  stage.innerHTML = `<div class="empty-state"><div class="emoji">🎨</div><h3>هيّئ اللعبة</h3><p>لا تحتاج بنك أسئلة — فقط عدد اللاعبين أو الفرق (تصلح للعب الفردي أيضًا لتحدي الذاكرة الشخصي).</p>
+    <button class="btn btn-primary" id="btn-setup">ابدأ الإعداد 🎮</button></div>`;
+  document.getElementById('btn-setup').addEventListener('click', openSetup);
+  openSetup();
+}
+function openSetup(){
+  EGL.openSetupModal({ title:'إعداد ذاكرة الألوان', allowIndividual:true, allowTeams:true, skipBank:true, minPlayers:1, maxPlayers:6 }, startGame);
+}
+
+function startGame(cfg){
+  players = cfg.players;
+  alive = players.map(()=>true);
+  sequence = [];
+  round = 0;
+  const stage = document.getElementById('stage');
+  stage.innerHTML = `
+    <div class="round-badge" id="round-badge">الجولة ١</div>
+    <div id="sb-wrap" class="scoreboard"></div>
+    <div class="turn-badge" id="turn-badge"></div>
+    <div class="simon-grid" id="simon-grid">
+      ${[0,1,2,3].map(t=>`<button class="simon-tile t${t}" data-t="${t}" disabled></button>`).join('')}
+    </div>
+    <div id="msg-area" style="text-align:center;"></div>`;
+  document.querySelectorAll('.simon-tile').forEach(btn=>{
+    btn.addEventListener('click', ()=> tileClick(parseInt(btn.dataset.t)));
+  });
+  renderPlayerBadges();
+  nextRound();
+}
+
+function renderPlayerBadges(){
+  const wrap = document.getElementById('sb-wrap');
+  wrap.innerHTML = players.map((p,i)=>`
+    <div class="player-chip ${alive[i]?'':'eliminated'}" id="pchip-${i}" style="${alive[i]?'':'opacity:.35; text-decoration:line-through;'}">
+      <div style="font-size:1.4rem;">${p.emoji}</div><div class="pname">${EGL.escapeHtml(p.name)}</div>
+    </div>`).join('');
+}
+
+function aliveIndices(){ return players.map((_,i)=>i).filter(i=>alive[i]); }
+
+function nextRound(){
+  round++;
+  document.getElementById('round-badge').textContent = `الجولة ${round}`;
+  document.getElementById('msg-area').innerHTML = '';
+  sequence.push(Math.floor(Math.random()*4));
+  flashSequence(()=>{
+    turnList = aliveIndices();
+    turnPtr = 0;
+    showTurn();
+  });
+}
+
+function flashSequence(cb){
+  setTilesDisabled(true);
+  document.getElementById('turn-badge').textContent = '👀 راقبوا التسلسل...';
+  let i = 0;
+  const iv = setInterval(()=>{
+    if(i > 0){ document.querySelector(`.simon-tile[data-t="${sequence[i-1]}"]`).classList.remove('flash'); }
+    if(i >= sequence.length){ clearInterval(iv); setTimeout(cb, 350); return; }
+    document.querySelector(`.simon-tile[data-t="${sequence[i]}"]`).classList.add('flash');
+    EGL.beep('tick');
+    i++;
+  }, 700);
+}
+
+function setTilesDisabled(v){
+  document.querySelectorAll('.simon-tile').forEach(b=>b.disabled = v);
+}
+
+function showTurn(){
+  if(turnPtr >= turnList.length){
+    const stillAlive = aliveIndices();
+    if(players.length === 1){
+      // solo mode: keep going as long as the only player hasn't failed yet
+      if(stillAlive.length === 0) return endGame(undefined);
+      setTimeout(nextRound, 900);
+      return;
+    }
+    if(stillAlive.length <= 1){ return endGame(stillAlive[0]); }
+    setTimeout(nextRound, 900);
+    return;
+  }
+  const curPlayer = turnList[turnPtr];
+  inputIdx = 0;
+  waitingInput = true;
+  document.getElementById('turn-badge').textContent = `🎯 دور: ${players[curPlayer].emoji} ${players[curPlayer].name}`;
+  document.querySelectorAll('.player-chip').forEach(c=>c.classList.remove('active'));
+  const chip = document.getElementById('pchip-'+curPlayer);
+  if(chip) chip.classList.add('active');
+  setTilesDisabled(false);
+}
+
+function tileClick(t){
+  if(!waitingInput) return;
+  const curPlayer = turnList[turnPtr];
+  const tile = document.querySelector(`.simon-tile[data-t="${t}"]`);
+  tile.classList.add('flash');
+  setTimeout(()=>tile.classList.remove('flash'), 220);
+  if(t === sequence[inputIdx]){
+    EGL.beep('tick');
+    inputIdx++;
+    if(inputIdx >= sequence.length){
+      waitingInput = false;
+      setTilesDisabled(true);
+      EGL.beep('correct');
+      document.getElementById('msg-area').innerHTML = `<p class="hint" style="color:var(--success)">✅ ${EGL.escapeHtml(players[curPlayer].name)} أعاد التسلسل بنجاح!</p>`;
+      turnPtr++;
+      setTimeout(()=>{ document.getElementById('msg-area').innerHTML=''; showTurn(); }, 1000);
+    }
+  } else {
+    waitingInput = false;
+    setTilesDisabled(true);
+    EGL.beep('wrong');
+    alive[curPlayer] = false;
+    renderPlayerBadges();
+    document.getElementById('msg-area').innerHTML = `<p class="hint" style="color:var(--danger)">❌ ${EGL.escapeHtml(players[curPlayer].name)} أخطأ التسلسل وخرج من اللعبة!</p>`;
+    turnPtr++;
+    setTimeout(()=>{ document.getElementById('msg-area').innerHTML=''; showTurn(); }, 1300);
+  }
+}
+
+function endGame(winnerIdx){
+  EGL.confetti(120); EGL.beep('win');
+  const stage = document.getElementById('stage');
+  const survived = round - 1;
+  const winnerHtml = (players.length === 1)
+    ? `<h2>🎉 نجحت في ${survived} جولة من الذاكرة!</h2>`
+    : (winnerIdx !== undefined
+        ? `<h2>${players[winnerIdx].emoji} ${EGL.escapeHtml(players[winnerIdx].name)} بطل الذاكرة!</h2>`
+        : `<h2>🤝 تعادل — خرج آخر لاعبَين بنفس الجولة!</h2>`);
+  stage.innerHTML = `<div class="qcard">
+    <div style="font-size:3rem;">🏆</div>
+    ${winnerHtml}
+    <div style="display:flex; gap:10px; justify-content:center; margin-top:16px;">
+      <button class="btn btn-primary" onclick="location.reload()">🔁 لعب مرة أخرى</button>
+      <a class="btn btn-outline" href="../index.html">🏠 الألعاب الأخرى</a>
+    </div>
+  </div>`;
+}
+
+init();
+</script>
+</body>
+</html>

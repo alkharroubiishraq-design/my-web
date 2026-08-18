@@ -1,0 +1,279 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>البطولة الفردية — ساحة الصف</title>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>⚔️</text></svg>">
+<link rel="stylesheet" href="../css/style.css">
+<style>
+  .bracket-wrap{ display:flex; gap:22px; overflow-x:auto; padding: 6px 4px 16px; margin-bottom:18px; }
+  .bracket-round{ display:flex; flex-direction:column; justify-content:space-around; gap:14px; min-width:190px; }
+  .bracket-round-title{ text-align:center; font-weight:800; font-size:.82rem; color: var(--text-dim); margin-bottom:4px; }
+  .match-box{ background: var(--surface-2); border-radius:12px; padding:8px 10px; border:2px solid rgba(255,255,255,.08); }
+  .match-box.current{ border-color: var(--accent-2); box-shadow: 0 0 0 3px rgba(255,210,63,.2); }
+  .match-player{ display:flex; align-items:center; gap:6px; padding:4px 2px; font-size:.85rem; font-weight:700; opacity:.6; }
+  .match-player.winner{ opacity:1; color: var(--success); }
+  .match-player.eliminated{ text-decoration: line-through; }
+  .duel-zones{ display:grid; grid-template-columns: 1fr 1fr; gap:14px; width:100%; max-width:820px; margin: 10px auto; }
+  .duel-zone{ border-radius: var(--radius); padding: 14px 10px; text-align:center; box-shadow: var(--shadow); border:2px solid rgba(255,255,255,.08); }
+  .duel-zone .dname{ font-weight:900; font-size:1.05rem; margin-bottom:8px; }
+  .duel-zone .dopts{ display:grid; grid-template-columns: 1fr 1fr; gap:6px; }
+  .duel-zone .dopts button{ padding:10px 6px; border-radius:10px; border:none; background: var(--surface-2); color:#fff; font-family:inherit; font-weight:700; font-size:.82rem; cursor:pointer; }
+  .duel-zone .dopts button:disabled{ opacity:.4; }
+  .duel-zone .dopts button.correct{ background: rgba(43,224,138,.4); }
+  .duel-zone .dopts button.wrong{ background: rgba(255,92,92,.4); }
+  .duel-zone.answered-correct{ border-color: var(--success); box-shadow: 0 0 0 3px rgba(43,224,138,.25); }
+  .duel-zone.answered-wrong{ border-color: var(--danger); box-shadow: 0 0 0 3px rgba(255,92,92,.25); }
+  .duel-result{ font-size:.78rem; font-weight:800; min-height:16px; margin-top:4px; }
+  .vs-badge{ text-align:center; font-weight:900; color: var(--accent-2); margin: 4px 0; }
+</style>
+</head>
+<body>
+<nav class="topnav"><div class="container">
+  <a class="brand" href="../index.html"><span class="logo">🎲</span> ساحة الصف</a>
+  <div class="navlinks"><a href="../index.html">الرئيسية</a><a href="../index.html#games">الألعاب</a><a href="../questions.html">بنك الأسئلة</a></div>
+</div></nav>
+
+<div class="game-shell">
+  <div class="game-header container">
+    <h1>⚔️ البطولة الفردية</h1>
+    <p>مبارزات إقصائية مباشرة — كل جولة يتواجه لاعبان بنفس السؤال، والأسرع والأصح يتقدّم حتى يبقى بطل واحد!</p>
+  </div>
+  <div class="game-stage container" id="stage"></div>
+</div>
+
+<script src="../js/common.js"></script>
+<script>
+const ANSWER_TIME = 8;
+let bank, questions, qPtr, bracket, curRound, curMatch, duelAnswered, roundStart, timerInt, timeLeft, retryCount;
+
+function init(){
+  const stage = document.getElementById('stage');
+  stage.innerHTML = `<div class="empty-state"><div class="emoji">⚔️</div><h3>هيّئ اللعبة</h3><p>بطولة إقصاء مباشر لـ ٣ لاعبين/فرق أو أكثر — يتم إكمال العدد تلقائيًا بجولات "استراحة" عند الحاجة.</p>
+    <button class="btn btn-primary" id="btn-setup">ابدأ الإعداد 🎮</button></div>`;
+  document.getElementById('btn-setup').addEventListener('click', openSetup);
+  openSetup();
+}
+function openSetup(){
+  EGL.openSetupModal({ title:'إعداد البطولة الفردية', allowIndividual:true, allowTeams:true, needQuestions:true, qType:['mcq','tf'], minPlayers:3, maxPlayers:8 }, startGame);
+}
+
+function startGame(cfg){
+  bank = EGL.getBank(cfg.bankId);
+  questions = EGL.shuffle(bank.questions.filter(q=>q.type==='mcq'||q.type==='tf'));
+  if(questions.length < 3){ EGL.toast('تحتاج البطولة ٣ أسئلة اختيار/صح-خطأ على الأقل'); return; }
+  qPtr = 0;
+
+  let entrants = EGL.shuffle(cfg.players.map(p=>({...p, bye:false})));
+  let size = 1;
+  while(size < entrants.length) size *= 2;
+  while(entrants.length < size) entrants.push({name:'', emoji:'💤', bye:true});
+
+  bracket = [ buildRound(entrants) ];
+  curRound = 0; curMatch = 0;
+
+  const stage = document.getElementById('stage');
+  stage.innerHTML = `<div class="bracket-wrap" id="bracket-wrap"></div><div id="duel-area"></div>`;
+  renderBracket();
+  playCurrentMatch();
+}
+
+function buildRound(list){
+  const matches = [];
+  for(let i=0;i<list.length;i+=2){
+    matches.push({ a:list[i], b:list[i+1] || null, winner:null });
+  }
+  return matches;
+}
+
+function nextQuestion(){
+  const q = questions[qPtr % questions.length];
+  qPtr++;
+  return q;
+}
+
+function renderBracket(){
+  const wrap = document.getElementById('bracket-wrap');
+  wrap.innerHTML = bracket.map((round, ri)=>`
+    <div class="bracket-round">
+      <div class="bracket-round-title">${roundLabel(ri, round.length)}</div>
+      ${round.map((m,mi)=>{
+        const isCurrent = ri===curRound && mi===curMatch && !m.winner;
+        return `<div class="match-box ${isCurrent?'current':''}">
+          ${renderEntrant(m.a, m.winner)}
+          ${renderEntrant(m.b, m.winner)}
+        </div>`;
+      }).join('')}
+    </div>`).join('');
+  wrap.scrollLeft = wrap.scrollWidth;
+}
+
+function renderEntrant(p, winner){
+  if(!p) return `<div class="match-player">— بانتظار الفائز —</div>`;
+  if(p.bye) return `<div class="match-player" style="opacity:.35;">💤 استراحة</div>`;
+  const isWinner = winner && winner.name === p.name && winner.emoji === p.emoji;
+  const isDone = !!winner;
+  return `<div class="match-player ${isWinner?'winner':''} ${isDone && !isWinner ? 'eliminated':''}">${p.emoji} ${EGL.escapeHtml(p.name)}</div>`;
+}
+
+function roundLabel(ri, matchCount){
+  if(matchCount === 1) return '🏆 النهائي';
+  if(matchCount === 2) return 'نصف النهائي';
+  return `الجولة ${ri+1}`;
+}
+
+function playCurrentMatch(){
+  const round = bracket[curRound];
+  if(curMatch >= round.length){
+    // round finished -> build next round from winners
+    const winners = round.map(m=>m.winner);
+    if(winners.length === 1){ return showChampion(winners[0]); }
+    bracket.push(buildRound(winners));
+    curRound++; curMatch = 0;
+    renderBracket();
+    return playCurrentMatch();
+  }
+  const match = round[curMatch];
+  if(!match.b || match.b.bye){
+    match.winner = match.a;
+    renderBracket();
+    const area = document.getElementById('duel-area');
+    area.innerHTML = `<div class="qcard"><p class="hint">${match.a.emoji} ${EGL.escapeHtml(match.a.name)} يتأهل تلقائيًا (استراحة) ⏭</p></div>`;
+    setTimeout(()=>{ curMatch++; playCurrentMatch(); }, 1300);
+    return;
+  }
+  retryCount = 0;
+  startDuel(match);
+}
+
+function startDuel(match){
+  clearInterval(timerInt);
+  const q = nextQuestion();
+  duelAnswered = [null, null];
+  const area = document.getElementById('duel-area');
+  area.innerHTML = `
+    <div class="qcard" style="margin-bottom:12px;">
+      <div class="vs-badge">${match.a.emoji} ${EGL.escapeHtml(match.a.name)} ⚔️ ${match.b.emoji} ${EGL.escapeHtml(match.b.name)}</div>
+      <div class="qtext" id="shared-q" style="visibility:hidden;">${EGL.escapeHtml(q.text)}</div>
+      <div style="text-align:center;"><button class="btn btn-gold" id="btn-reveal">⚡ اعرض السؤال للمبارزين!</button></div>
+      <div class="timer-bar" style="margin-top:14px;"><div id="timer-fill" style="width:100%"></div></div>
+    </div>
+    <div class="duel-zones" id="duel-zones"></div>`;
+  const zonesEl = document.getElementById('duel-zones');
+  const pair = [match.a, match.b];
+  zonesEl.innerHTML = pair.map((p,i)=>`
+    <div class="duel-zone" id="dzone-${i}">
+      <div class="dname">${p.emoji} ${EGL.escapeHtml(p.name)}</div>
+      <div class="dopts" id="dopts-${i}">${q.options.map((o,oi)=>`<button data-oi="${oi}" disabled>${EGL.escapeHtml(o)}</button>`).join('')}</div>
+      <div class="duel-result" id="dresult-${i}"></div>
+    </div>`).join('');
+  pair.forEach((p,i)=>{
+    document.getElementById('dopts-'+i).querySelectorAll('button').forEach(btn=>{
+      btn.addEventListener('click', ()=> duelAnswer(match, i, parseInt(btn.dataset.oi), q));
+    });
+  });
+  document.getElementById('btn-reveal').addEventListener('click', ()=>startCountdown(match, q));
+}
+
+function startCountdown(match, q){
+  document.getElementById('btn-reveal').disabled = true;
+  let n = 3;
+  const box = document.getElementById('btn-reveal');
+  box.textContent = `استعدّوا... ${n}`;
+  EGL.beep('tick');
+  const iv = setInterval(()=>{
+    n--;
+    if(n>0){ box.textContent = `استعدّوا... ${n}`; EGL.beep('tick'); }
+    else {
+      box.textContent = 'الآن! ⚡';
+      EGL.beep('win');
+      clearInterval(iv);
+      setTimeout(()=>openAnswering(match, q), 400);
+    }
+  }, 600);
+}
+
+function openAnswering(match, q){
+  document.getElementById('shared-q').style.visibility = 'visible';
+  document.querySelectorAll('.dopts button').forEach(b=>b.disabled=false);
+  roundStart = performance.now();
+  timeLeft = ANSWER_TIME;
+  updateTimerBar();
+  timerInt = setInterval(()=>{
+    timeLeft--; updateTimerBar();
+    if(timeLeft<=0) resolveDuel(match, q);
+  }, 1000);
+}
+function updateTimerBar(){
+  const fill = document.getElementById('timer-fill');
+  if(fill) fill.style.width = (timeLeft/ANSWER_TIME*100)+'%';
+}
+
+function duelAnswer(match, i, oi, q){
+  if(duelAnswered[i] !== null) return;
+  const t = performance.now() - roundStart;
+  duelAnswered[i] = { oi, t };
+  document.getElementById('dopts-'+i).querySelectorAll('button').forEach(b=>b.disabled=true);
+  document.getElementById('dresult-'+i).textContent = `⏱ ${(t/1000).toFixed(2)} ث`;
+  EGL.beep('tick');
+  if(duelAnswered.every(a=>a!==null)) resolveDuel(match, q);
+}
+
+function resolveDuel(match, q){
+  clearInterval(timerInt);
+  const pair = [match.a, match.b];
+  document.querySelectorAll('.dopts button').forEach(b=>b.disabled=true);
+  [0,1].forEach(i=>{
+    const opts = document.getElementById('dopts-'+i).querySelectorAll('button');
+    opts[q.correctIndex].classList.add('correct');
+    const ans = duelAnswered[i];
+    const zone = document.getElementById('dzone-'+i);
+    if(ans && ans.oi === q.correctIndex){ zone.classList.add('answered-correct'); }
+    else { if(ans) opts[ans.oi].classList.add('wrong'); zone.classList.add('answered-wrong'); }
+  });
+
+  let winnerIdx = -1;
+  const c0 = duelAnswered[0] && duelAnswered[0].oi === q.correctIndex;
+  const c1 = duelAnswered[1] && duelAnswered[1].oi === q.correctIndex;
+  if(c0 && c1) winnerIdx = duelAnswered[0].t <= duelAnswered[1].t ? 0 : 1;
+  else if(c0) winnerIdx = 0;
+  else if(c1) winnerIdx = 1;
+
+  if(winnerIdx === -1){
+    retryCount++;
+    if(retryCount < 4){
+      EGL.beep('wrong');
+      EGL.toast('لا أحد أجاب صح — سؤال آخر لنفس المبارزة!');
+      setTimeout(()=>startDuel(match), 2200);
+      return;
+    }
+    winnerIdx = Math.random() < 0.5 ? 0 : 1;
+    EGL.toast('حسم التعادل بالحظ 🎲');
+  }
+
+  match.winner = pair[winnerIdx];
+  EGL.beep(winnerIdx>=0 ? 'correct' : 'wrong');
+  EGL.confetti(40);
+  document.getElementById('dresult-'+winnerIdx).textContent = '🏆 يتقدّم!';
+  renderBracket();
+  setTimeout(()=>{ curMatch++; playCurrentMatch(); }, 2400);
+}
+
+function showChampion(champ){
+  EGL.confetti(160); EGL.beep('win');
+  const area = document.getElementById('duel-area');
+  area.innerHTML = `<div class="qcard">
+    <div style="font-size:3.4rem;">🏆</div>
+    <h2>${champ.emoji} ${EGL.escapeHtml(champ.name)} بطل البطولة!</h2>
+    <div style="display:flex; gap:10px; justify-content:center; margin-top:16px;">
+      <button class="btn btn-primary" onclick="location.reload()">🔁 بطولة جديدة</button>
+      <a class="btn btn-outline" href="../index.html">🏠 الألعاب الأخرى</a>
+    </div>
+  </div>`;
+}
+
+init();
+</script>
+</body>
+</html>

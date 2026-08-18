@@ -1,0 +1,193 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>سباق السلالم والثعابين — ساحة الصف</title>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>🐍</text></svg>">
+<link rel="stylesheet" href="../css/style.css">
+<style>
+  .track-wrap{ width:100%; max-width:820px; margin: 6px auto 26px; display:flex; flex-direction:column; gap:14px; }
+  .lane{ position:relative; background: repeating-linear-gradient(90deg, var(--surface-2) 0 40px, var(--bg-soft) 40px 80px); border-radius:14px; height:56px; border:1px solid rgba(255,255,255,.1); overflow:hidden; }
+  .lane::after{ content:'🏁'; position:absolute; left:6px; top:50%; transform:translateY(-50%); font-size:1.6rem; }
+  .lane-name{ position:absolute; right:8px; top:-22px; font-weight:800; font-size:.85rem; color: var(--text-dim); }
+  .token{ position:absolute; top:50%; transform:translate(50%,-50%); font-size:1.8rem; transition: right 1s cubic-bezier(.2,.9,.3,1); right:95%; z-index:3; }
+  .lmark{ position:absolute; top:50%; transform:translate(50%,-50%); font-size:1.3rem; opacity:.55; z-index:1; pointer-events:none; }
+  .dice-box{ display:flex; align-items:center; justify-content:center; gap:10px; margin: 6px 0 14px; }
+  .dice-face{ font-size:2.4rem; width:60px; height:60px; display:flex; align-items:center; justify-content:center; background: var(--surface-2); border-radius:14px; box-shadow: var(--shadow); }
+  .legend{ display:flex; gap:16px; justify-content:center; flex-wrap:wrap; font-size:.82rem; color: var(--text-dim); margin-bottom:10px; }
+</style>
+</head>
+<body>
+<nav class="topnav"><div class="container">
+  <a class="brand" href="../index.html"><span class="logo">🎲</span> ساحة الصف</a>
+  <div class="navlinks"><a href="../index.html">الرئيسية</a><a href="../index.html#games">الألعاب</a><a href="../questions.html">بنك الأسئلة</a></div>
+</div></nav>
+
+<div class="game-shell">
+  <div class="game-header container">
+    <h1>🐍 سباق السلالم والثعابين</h1>
+    <p>أجب صح لترمي النرد وتتقدم — قد يحملك سلّم لأعلى المضمار أو يبتلعك ثعبان للخلف!</p>
+  </div>
+  <div class="game-stage container" id="stage"></div>
+</div>
+
+<script src="../js/common.js"></script>
+<script>
+const TRACK = 20;
+// square -> destination square (ladders go forward, snakes go back)
+const LADDERS = { 3:8, 6:14, 10:17 };
+const SNAKES  = { 9:4, 13:7, 18:11 };
+let players, progress, questions, qIdx, activeI = 0, answered=false, moving=false;
+
+function init(){
+  const stage = document.getElementById('stage');
+  stage.innerHTML = `<div class="empty-state"><div class="emoji">🐍</div><h3>هيّئ اللعبة</h3><p>اختر بنك الأسئلة وعدد المتسابقين للبدء — كل إجابة صحيحة ترمي النرد!</p>
+    <button class="btn btn-primary" id="btn-setup">ابدأ الإعداد 🎮</button></div>`;
+  document.getElementById('btn-setup').addEventListener('click', openSetup);
+  openSetup();
+}
+function openSetup(){
+  EGL.openSetupModal({ title:'إعداد سباق السلالم والثعابين', allowIndividual:true, allowTeams:true, needQuestions:true, qType:['mcq','tf'] }, startGame);
+}
+
+function startGame(cfg){
+  const bank = EGL.getBank(cfg.bankId);
+  questions = EGL.shuffle(bank.questions.filter(q=>q.type==='mcq'||q.type==='tf'));
+  if(!questions.length){ EGL.toast('لا توجد أسئلة اختيار/صح-خطأ في هذا البنك'); return; }
+  qIdx = 0;
+  players = cfg.players;
+  progress = players.map(()=>0);
+  activeI = 0;
+
+  const stage = document.getElementById('stage');
+  stage.innerHTML = `
+    <div class="legend"><span>🪜 سلّم = يقفز للأمام</span><span>🐍 ثعبان = ينزلق للخلف</span></div>
+    <div class="track-wrap" id="track-wrap"></div>
+    <div id="q-area" style="width:100%;"></div>`;
+  const trackWrap = document.getElementById('track-wrap');
+  trackWrap.innerHTML = players.map((p,i)=>`
+    <div style="position:relative; margin-top:22px;">
+      <div class="lane-name">${p.emoji} ${EGL.escapeHtml(p.name)}</div>
+      <div class="lane" id="lane-${i}">
+        ${Object.keys(LADDERS).map(sq=>`<div class="lmark" style="right:${squarePct(sq)}%">🪜</div>`).join('')}
+        ${Object.keys(SNAKES).map(sq=>`<div class="lmark" style="right:${squarePct(sq)}%">🐍</div>`).join('')}
+        <div class="token" id="token-${i}">${p.emoji}</div>
+      </div>
+    </div>`).join('');
+  renderQuestion();
+}
+
+function squarePct(sq){ return 8 + (sq/TRACK) * 88; }
+
+function nextQuestion(){
+  qIdx++;
+  if(qIdx >= questions.length){ questions = EGL.shuffle(questions); qIdx = 0; }
+}
+
+function renderQuestion(){
+  answered = false;
+  const q = questions[qIdx];
+  const area = document.getElementById('q-area');
+  area.innerHTML = `
+    <div class="qcard">
+      <div class="qmeta"><span class="badge">🎲 دور: ${EGL.escapeHtml(players[activeI].name)}</span><span class="badge">${EGL.diffLabel(q.difficulty)}</span></div>
+      <div class="qtext">${EGL.escapeHtml(q.text)}</div>
+      <div class="options" id="opts">${q.options.map((o,i)=>`<button class="option-btn" data-i="${i}">${EGL.escapeHtml(o)}</button>`).join('')}</div>
+    </div>`;
+  area.querySelectorAll('.option-btn').forEach(btn=>btn.addEventListener('click', ()=>answer(parseInt(btn.dataset.i), q)));
+}
+
+function answer(i, q){
+  if(answered) return;
+  answered = true;
+  const opts = document.querySelectorAll('.option-btn');
+  opts.forEach(b=>b.disabled=true);
+  opts[i].classList.add(i===q.correctIndex?'correct':'wrong');
+  opts[q.correctIndex].classList.add('correct');
+  if(i === q.correctIndex){
+    EGL.beep('correct');
+    rollDice();
+  } else {
+    EGL.beep('wrong');
+    setTimeout(advanceTurn, 1400);
+  }
+}
+
+function rollDice(){
+  const area = document.getElementById('q-area');
+  area.innerHTML = `<div class="qcard"><p class="hint">إجابة صحيحة! ارمِ النرد للتقدم 🎲</p>
+    <div class="dice-box"><div class="dice-face" id="dice-face">🎲</div></div>
+    <div style="text-align:center;"><button class="btn btn-gold" id="btn-roll">🎲 ارمِ النرد</button></div></div>`;
+  document.getElementById('btn-roll').addEventListener('click', ()=>{
+    document.getElementById('btn-roll').disabled = true;
+    let ticks = 0;
+    const faces = ['⚀','⚁','⚂','⚃','⚄','⚅'];
+    const iv = setInterval(()=>{
+      document.getElementById('dice-face').textContent = faces[Math.floor(Math.random()*6)];
+      ticks++;
+      if(ticks>=8){
+        clearInterval(iv);
+        const roll = 1 + Math.floor(Math.random()*6);
+        document.getElementById('dice-face').textContent = faces[roll-1];
+        setTimeout(()=>applyRoll(roll), 500);
+      }
+    }, 90);
+  });
+}
+
+function applyRoll(roll){
+  moving = true;
+  progress[activeI] = Math.min(TRACK, progress[activeI] + roll);
+  moveToken(activeI, ()=>{
+    const sq = progress[activeI];
+    if(LADDERS[sq] !== undefined){
+      EGL.toast('🪜 سلّم! قفزة للأمام');
+      EGL.beep('win');
+      setTimeout(()=>{ progress[activeI] = LADDERS[sq]; moveToken(activeI, checkWin); }, 500);
+    } else if(SNAKES[sq] !== undefined){
+      EGL.toast('🐍 ثعبان! انزلاق للخلف');
+      EGL.beep('wrong');
+      setTimeout(()=>{ progress[activeI] = SNAKES[sq]; moveToken(activeI, checkWin); }, 500);
+    } else {
+      checkWin();
+    }
+  });
+}
+
+function checkWin(){
+  moving = false;
+  if(progress[activeI] >= TRACK){ finishRace(activeI); return; }
+  setTimeout(advanceTurn, 700);
+}
+
+function advanceTurn(){
+  activeI = (activeI + 1) % players.length;
+  nextQuestion();
+  renderQuestion();
+}
+
+function moveToken(i, cb){
+  const token = document.getElementById('token-'+i);
+  const pct = squarePct(progress[i]);
+  token.style.right = pct + '%';
+  setTimeout(()=>{ if(cb) cb(); }, 1050);
+}
+
+function finishRace(winnerI){
+  EGL.confetti(120); EGL.beep('win');
+  const area = document.getElementById('q-area');
+  area.innerHTML = `<div class="qcard">
+    <div style="font-size:3rem;">🏆</div>
+    <h2>${EGL.escapeHtml(players[winnerI].emoji)} ${EGL.escapeHtml(players[winnerI].name)} يفوز بالسباق!</h2>
+    <div style="display:flex; gap:10px; justify-content:center; margin-top:16px;">
+      <button class="btn btn-primary" onclick="location.reload()">🔁 سباق جديد</button>
+      <a class="btn btn-outline" href="../index.html">🏠 الألعاب الأخرى</a>
+    </div>
+  </div>`;
+}
+
+init();
+</script>
+</body>
+</html>

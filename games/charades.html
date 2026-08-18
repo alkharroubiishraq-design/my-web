@@ -1,0 +1,131 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>مثّل ولا تحكي — ساحة الصف</title>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>🎭</text></svg>">
+<link rel="stylesheet" href="../css/style.css">
+<style>
+  .peek-word{ font-size:2rem; font-weight:900; text-align:center; color: var(--accent-2); margin:14px 0; }
+  .acting-stage{ text-align:center; padding: 30px 10px; }
+  .acting-emoji{ font-size:5.5rem; animation: actbounce 1.4s ease-in-out infinite; }
+  @keyframes actbounce{ 0%,100%{ transform: translateY(0) rotate(-4deg); } 50%{ transform: translateY(-14px) rotate(4deg); } }
+</style>
+</head>
+<body>
+<nav class="topnav"><div class="container">
+  <a class="brand" href="../index.html"><span class="logo">🎲</span> ساحة الصف</a>
+  <div class="navlinks"><a href="../index.html">الرئيسية</a><a href="../index.html#games">الألعاب</a><a href="../questions.html">بنك الأسئلة</a></div>
+</div></nav>
+
+<div class="game-shell">
+  <div class="game-header container">
+    <h1>🎭 مثّل ولا تحكي</h1>
+    <p>مثّل الكلمة السرية بالحركات فقط ليخمنها فريقك قبل نفاد الوقت — ممنوع الكلام أو الكتابة!</p>
+  </div>
+  <div class="game-stage container" id="stage"></div>
+</div>
+
+<script src="../js/common.js"></script>
+<script>
+const ROUND_TIME = 60;
+let sb, players, actorI, pool, poolIdx, secret, timerInt, timeLeft;
+
+function init(){
+  const stage = document.getElementById('stage');
+  stage.innerHTML = `<div class="empty-state"><div class="emoji">🎭</div><h3>هيّئ اللعبة</h3><p>تحتاج بنك أسئلة فيه إجابات نصية قصيرة (كلمات أو أفعال يسهل تمثيلها).</p>
+    <button class="btn btn-primary" id="btn-setup">ابدأ الإعداد 🎮</button></div>`;
+  document.getElementById('btn-setup').addEventListener('click', openSetup);
+  openSetup();
+}
+function openSetup(){
+  EGL.openSetupModal({ title:'إعداد مثّل ولا تحكي', allowIndividual:true, allowTeams:true, needQuestions:true }, startGame);
+}
+
+function startGame(cfg){
+  const bank = EGL.getBank(cfg.bankId);
+  const eligible = bank.questions.filter(q => q.answerText && q.answerText.trim().length >= 2 && q.answerText.trim().length <= 16);
+  if(eligible.length < 3){ EGL.toast('تحتاج هذه اللعبة أسئلة ذات إجابات نصية قصيرة (٣ على الأقل)'); return; }
+  pool = EGL.shuffle(eligible);
+  poolIdx = 0;
+  players = cfg.players;
+  actorI = 0;
+  const stage = document.getElementById('stage');
+  stage.innerHTML = `<div id="sb-wrap" class="scoreboard"></div><div id="round-info"></div>`;
+  sb = new EGL.Scoreboard(document.getElementById('sb-wrap'), players);
+  startRound();
+}
+
+function startRound(){
+  clearInterval(timerInt);
+  sb.setActive(actorI);
+  if(poolIdx >= pool.length){ pool = EGL.shuffle(pool); poolIdx = 0; }
+  secret = pool[poolIdx++].answerText.trim();
+  const area = document.getElementById('round-info');
+  area.innerHTML = `
+    <div class="qcard">
+      <p class="hint">الممثّل: <strong style="color:var(--accent-2)">${players[actorI].emoji} ${EGL.escapeHtml(players[actorI].name)}</strong></p>
+      <p>على الممثّل فقط أن يضغط لرؤية الكلمة، ثم يبدأ التمثيل بالحركات لباقي الصف!</p>
+      <button class="btn btn-gold" id="btn-peek">👁 اعرض الكلمة لي فقط (٣ ثوانٍ)</button>
+    </div>`;
+  document.getElementById('btn-peek').addEventListener('click', peekWord);
+}
+
+function peekWord(){
+  const area = document.getElementById('round-info');
+  area.innerHTML = `<div class="qcard"><div class="peek-word">${EGL.escapeHtml(secret)}</div><p class="hint">احفظها... ستختفي وسيبدأ وقت التمثيل تلقائيًا</p></div>`;
+  EGL.beep('tick');
+  setTimeout(startActing, 3000);
+}
+
+function startActing(){
+  timeLeft = ROUND_TIME;
+  const area = document.getElementById('round-info');
+  area.innerHTML = `
+    <div class="timer-bar"><div id="timer-fill" style="width:100%"></div></div>
+    <div class="qcard acting-stage">
+      <div class="acting-emoji">🎭</div>
+      <p class="hint">مثّلوا الآن بالحركات فقط — بدون كلام ولا كتابة!</p>
+    </div>
+    <div style="display:flex; gap:10px; justify-content:center;">
+      <button class="btn btn-accent" id="btn-guessed">✅ خمّنوا صح (+15)</button>
+      <button class="btn btn-outline" id="btn-give-up">⏭ تخطّي</button>
+    </div>`;
+  document.getElementById('btn-guessed').addEventListener('click', ()=>{ sb.addScore(actorI, 15); EGL.beep('correct'); EGL.confetti(50); endRound(); });
+  document.getElementById('btn-give-up').addEventListener('click', endRound);
+  timerInt = setInterval(()=>{
+    timeLeft--;
+    const fill = document.getElementById('timer-fill');
+    if(fill) fill.style.width = (timeLeft/ROUND_TIME*100)+'%';
+    if(timeLeft<=0) endRound();
+  }, 1000);
+}
+
+function endRound(){
+  clearInterval(timerInt);
+  actorI++;
+  if(actorI >= players.length){ showResults(); return; }
+  setTimeout(startRound, 800);
+}
+
+function showResults(){
+  EGL.confetti(100); EGL.beep('win');
+  const ranking = sb.ranking();
+  const stage = document.getElementById('stage');
+  stage.innerHTML = `<div class="qcard">
+    <div style="font-size:3rem;">🏆</div><h2>انتهت الجولات!</h2>
+    <div class="scoreboard" style="justify-content:center;">
+      ${ranking.map((p,r)=>`<div class="player-chip ${r===0?'active':''}"><div style="font-size:1.4rem;">${r===0?'🥇':r===1?'🥈':r===2?'🥉':p.emoji}</div><div class="pname">${EGL.escapeHtml(p.name)}</div><div class="pscore">${p.score}</div></div>`).join('')}
+    </div>
+    <div style="display:flex; gap:10px; justify-content:center; margin-top:16px;">
+      <button class="btn btn-primary" onclick="location.reload()">🔁 لعب مرة أخرى</button>
+      <a class="btn btn-outline" href="../index.html">🏠 الألعاب الأخرى</a>
+    </div>
+  </div>`;
+}
+
+init();
+</script>
+</body>
+</html>
