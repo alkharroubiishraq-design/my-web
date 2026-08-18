@@ -1,0 +1,110 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>قطار الجمل — ساحة الصف</title>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>🚂</text></svg>">
+<link rel="stylesheet" href="../css/style.css">
+<style>
+  .train-track{ display:flex; flex-direction:row-reverse; gap:6px; overflow-x:auto; padding: 20px 8px; min-height:90px; align-items:center; }
+  .loco{ font-size:2.6rem; flex:0 0 auto; }
+  .car{ background: var(--surface-2); border-radius:12px 4px 4px 12px; padding:10px 14px; font-weight:800; white-space:nowrap; flex:0 0 auto; box-shadow: var(--shadow); border-bottom:4px solid var(--primary); position:relative; }
+  .car .by{ display:block; font-size:.62rem; color: var(--text-dim); font-weight:700; margin-top:2px; }
+  .add-row{ display:flex; gap:8px; max-width:520px; margin: 10px auto; }
+  .add-row input{ flex:1; padding:12px; border-radius:10px; border:none; background: var(--surface-2); color:#fff; font-family:inherit; font-weight:700; text-align:center; font-size:1rem; }
+  .final-sentence{ font-size:1.4rem; font-weight:900; text-align:center; line-height:2.1; color: var(--accent-2); margin: 14px 0; }
+</style>
+</head>
+<body>
+<nav class="topnav"><div class="container">
+  <a class="brand" href="../index.html"><span class="logo">🎲</span> ساحة الصف</a>
+  <div class="navlinks"><a href="../index.html">الرئيسية</a><a href="../index.html#games">الألعاب</a><a href="../questions.html">بنك الأسئلة</a></div>
+</div></nav>
+
+<div class="game-shell">
+  <div class="game-header container">
+    <h1>🚂 قطار الجمل</h1>
+    <p>كل لاعب يضيف كلمة واحدة فقط لتكوين جملة طويلة ومضحكة معًا — لا أحد يعرف إلى أين ستتجه الجملة القادمة!</p>
+  </div>
+  <div class="game-stage container" id="stage"></div>
+</div>
+
+<script src="../js/common.js"></script>
+<script>
+let players, words, turnI, TARGET;
+
+function init(){
+  const stage = document.getElementById('stage');
+  stage.innerHTML = `<div class="empty-state"><div class="emoji">🚂</div><h3>هيّئ اللعبة</h3><p>لا تحتاج بنك أسئلة — فقط أسماء اللاعبين بالترتيب الذي سيضيفون فيه كلماتهم.</p>
+    <button class="btn btn-primary" id="btn-setup">ابدأ الإعداد 🎮</button></div>`;
+  document.getElementById('btn-setup').addEventListener('click', openSetup);
+  openSetup();
+}
+function openSetup(){
+  EGL.openSetupModal({ title:'إعداد قطار الجمل', allowIndividual:true, allowTeams:false, skipBank:true, minPlayers:2, maxPlayers:8, playersLabel:'عدد ركّاب القطار' }, startGame);
+}
+
+function startGame(cfg){
+  players = cfg.players;
+  words = [];
+  turnI = 0;
+  TARGET = Math.max(8, players.length * 2);
+  const stage = document.getElementById('stage');
+  stage.innerHTML = `
+    <div class="badge" id="progress-badge" style="display:block; text-align:center; margin-bottom:6px;"></div>
+    <div class="train-track" id="track"><div class="loco">🚂</div></div>
+    <div class="badge" id="turn-badge" style="display:block; text-align:center; margin-bottom:10px;"></div>
+    <div class="add-row">
+      <input type="text" id="word-input" placeholder="اكتب كلمة واحدة فقط..." maxlength="20">
+      <button class="btn btn-gold" id="btn-add">🚃 أضف الكلمة</button>
+    </div>`;
+  document.getElementById('btn-add').addEventListener('click', addWord);
+  document.getElementById('word-input').addEventListener('keydown', e=>{ if(e.key==='Enter') addWord(); });
+  updateBadges();
+}
+
+function updateBadges(){
+  document.getElementById('progress-badge').textContent = `🚃 عدد الكلمات: ${words.length} / ${TARGET}`;
+  const p = players[turnI];
+  document.getElementById('turn-badge').innerHTML = `🎯 دور: <span style="color:var(--accent-2)">${p.emoji} ${EGL.escapeHtml(p.name)}</span>`;
+}
+
+function addWord(){
+  const input = document.getElementById('word-input');
+  const val = input.value.trim();
+  if(!val) return;
+  const firstWord = val.split(/\s+/)[0];
+  words.push({ word: firstWord, by: turnI });
+  input.value = '';
+  const track = document.getElementById('track');
+  const car = document.createElement('div');
+  car.className = 'car';
+  car.innerHTML = `${EGL.escapeHtml(firstWord)}<span class="by">${players[turnI].emoji}</span>`;
+  track.insertBefore(car, track.firstChild);
+  track.scrollLeft = 0;
+  EGL.beep('tick');
+  turnI = (turnI + 1) % players.length;
+  if(words.length >= TARGET){ return finishTrain(); }
+  updateBadges();
+}
+
+function finishTrain(){
+  EGL.confetti(120); EGL.beep('win');
+  const sentence = words.map(w=>w.word).join(' ');
+  const stage = document.getElementById('stage');
+  stage.innerHTML = `<div class="qcard">
+    <div style="font-size:3rem;">🚂</div>
+    <h2>وصل القطار! هذه جملتكم الجماعية:</h2>
+    <div class="final-sentence">"${EGL.escapeHtml(sentence)}"</div>
+    <div style="display:flex; gap:10px; justify-content:center; margin-top:16px;">
+      <button class="btn btn-primary" onclick="location.reload()">🔁 قطار جديد</button>
+      <a class="btn btn-outline" href="../index.html">🏠 الألعاب الأخرى</a>
+    </div>
+  </div>`;
+}
+
+init();
+</script>
+</body>
+</html>

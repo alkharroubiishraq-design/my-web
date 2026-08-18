@@ -1,0 +1,171 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>المزاد المغلق — ساحة الصف</title>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>🤐</text></svg>">
+<link rel="stylesheet" href="../css/style.css">
+<style>
+  .bid-zones{ display:grid; gap:14px; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); width:100%; max-width:800px; margin: 14px auto; }
+  .bid-zone{ background: var(--surface-2); border-radius:14px; padding:12px; text-align:center; box-shadow: var(--shadow); border:2px solid rgba(255,255,255,.08); }
+  .bid-zone .bname{ font-weight:900; margin-bottom:2px; }
+  .bid-zone .bbudget{ font-size:.8rem; color: var(--accent-2); font-weight:800; margin-bottom:8px; }
+  .bid-zone input{ width:88%; padding:8px; border-radius:8px; border:none; background: var(--surface); color:#fff; font-family:inherit; font-weight:800; text-align:center; font-size:1.1rem; letter-spacing:4px; }
+  .bid-zone.winner{ border-color: var(--success); box-shadow: 0 0 0 3px rgba(43,224,138,.3); }
+  .budget-strip{ display:flex; gap:14px; justify-content:center; flex-wrap:wrap; margin-bottom:8px; font-weight:800; font-size:.85rem; color: var(--text-dim); }
+</style>
+</head>
+<body>
+<nav class="topnav"><div class="container">
+  <a class="brand" href="../index.html"><span class="logo">🎲</span> ساحة الصف</a>
+  <div class="navlinks"><a href="../index.html">الرئيسية</a><a href="../index.html#games">الألعاب</a><a href="../questions.html">بنك الأسئلة</a></div>
+</div></nav>
+
+<div class="game-shell">
+  <div class="game-header container">
+    <h1>🤐 المزاد المغلق</h1>
+    <p>راهنوا سرًا على سؤال لا تعرفون نصه بعد — الفئة والصعوبة فقط تظهر لكم! الأعلى مزايدة يكسب حق الإجابة، والفوز يعني ربح الرهان مضاعفًا.</p>
+  </div>
+  <div class="game-stage container" id="stage"></div>
+</div>
+
+<script src="../js/common.js"></script>
+<script>
+const START_BUDGET = 100;
+let teams, budgets, questions, qIdx, round, ROUNDS;
+
+function init(){
+  const stage = document.getElementById('stage');
+  stage.innerHTML = `<div class="empty-state"><div class="emoji">🤐</div><h3>هيّئ اللعبة</h3><p>فريقان أو أكثر، كل فريق يبدأ برصيد ١٠٠ نقطة للمراهنة عليها عبر الجولات.</p>
+    <button class="btn btn-primary" id="btn-setup">ابدأ الإعداد 🎮</button></div>`;
+  document.getElementById('btn-setup').addEventListener('click', openSetup);
+  openSetup();
+}
+function openSetup(){
+  EGL.openSetupModal({ title:'إعداد المزاد المغلق', allowIndividual:false, allowTeams:true, needQuestions:true, qType:['mcq','tf'], minPlayers:2, maxPlayers:4 }, startGame);
+}
+
+function startGame(cfg){
+  const bank = EGL.getBank(cfg.bankId);
+  questions = EGL.shuffle(bank.questions.filter(q=>q.type==='mcq'||q.type==='tf'));
+  if(!questions.length){ EGL.toast('لا توجد أسئلة اختيار/صح-خطأ في هذا البنك'); return; }
+  teams = cfg.players;
+  budgets = teams.map(()=>START_BUDGET);
+  qIdx = 0;
+  round = 0;
+  ROUNDS = Math.min(8, questions.length);
+  const stage = document.getElementById('stage');
+  stage.innerHTML = `<div class="budget-strip" id="budget-strip"></div><div id="round-area"></div>`;
+  updateBudgetStrip();
+  nextRound();
+}
+
+function updateBudgetStrip(){
+  document.getElementById('budget-strip').innerHTML = teams.map((t,i)=>`<span>${t.emoji} ${EGL.escapeHtml(t.name)}: ${budgets[i]} 💰</span>`).join('');
+}
+
+function nextRound(){
+  round++;
+  if(round > ROUNDS){ return showResults(); }
+  renderBidPhase();
+}
+
+function renderBidPhase(){
+  const q = questions[qIdx];
+  const area = document.getElementById('round-area');
+  area.innerHTML = `
+    <div class="qcard" style="margin-bottom:10px; text-align:center;">
+      <span class="badge">🎲 جولة ${round} / ${ROUNDS}</span>
+      <span class="badge">الفئة: ${EGL.escapeHtml(q.category||'عام')}</span>
+      <span class="badge">${EGL.diffLabel(q.difficulty)}</span>
+      <p class="hint" style="margin-top:8px;">السؤال نفسه سرّي حتى يُغلق المزاد — راهنوا بحذر!</p>
+    </div>
+    <div class="bid-zones" id="bid-zones"></div>
+    <div style="text-align:center; margin-top:14px;"><button class="btn btn-gold" id="btn-lock">🔒 اقفل المزايدات وأعلن الفائز</button></div>`;
+  const zones = document.getElementById('bid-zones');
+  zones.innerHTML = teams.map((t,i)=>`
+    <div class="bid-zone" id="bzone-${i}">
+      <div class="bname">${t.emoji} ${EGL.escapeHtml(t.name)}</div>
+      <div class="bbudget">الرصيد: ${budgets[i]} 💰</div>
+      <input type="password" inputmode="numeric" pattern="[0-9]*" id="bid-${i}" placeholder="مبلغ المزايدة" max="${budgets[i]}">
+    </div>`).join('');
+  document.getElementById('btn-lock').addEventListener('click', lockBids);
+}
+
+function lockBids(){
+  document.getElementById('btn-lock').disabled = true;
+  const bids = teams.map((t,i)=>{
+    let v = parseInt(document.getElementById('bid-'+i).value, 10);
+    if(isNaN(v) || v < 0) v = 0;
+    if(v > budgets[i]) v = budgets[i];
+    return v;
+  });
+  let winnerIdx = 0;
+  for(let i=1;i<bids.length;i++){
+    if(bids[i] > bids[winnerIdx]) winnerIdx = i;
+    else if(bids[i] === bids[winnerIdx] && Math.random() < 0.5) winnerIdx = i;
+  }
+  const winBid = bids[winnerIdx];
+  budgets[winnerIdx] -= winBid;
+  updateBudgetStrip();
+  document.querySelectorAll('.bid-zone').forEach((z,i)=>{
+    document.getElementById('bid-'+i).value = bids[i];
+    document.getElementById('bid-'+i).type = 'text';
+    document.getElementById('bid-'+i).disabled = true;
+    if(i===winnerIdx) z.classList.add('winner');
+  });
+  EGL.beep('tick');
+  EGL.toast(`🏆 ${teams[winnerIdx].name} يفوز بحق الإجابة بمزايدة ${winBid}!`);
+  setTimeout(()=>revealQuestion(winnerIdx, winBid), 1800);
+}
+
+function revealQuestion(winnerIdx, bid){
+  const q = questions[qIdx];
+  const area = document.getElementById('round-area');
+  area.innerHTML = `
+    <div class="qcard">
+      <div class="qmeta"><span class="badge">🎯 يجيب: ${teams[winnerIdx].emoji} ${EGL.escapeHtml(teams[winnerIdx].name)}</span><span class="badge">الرهان: ${bid} 💰</span></div>
+      <div class="qtext">${EGL.escapeHtml(q.text)}</div>
+      <div class="options" id="opts">${q.options.map((o,oi)=>`<button class="option-btn" data-oi="${oi}">${EGL.escapeHtml(o)}</button>`).join('')}</div>
+    </div>`;
+  area.querySelectorAll('.option-btn').forEach(btn=>btn.addEventListener('click', ()=>answerAuction(parseInt(btn.dataset.oi), winnerIdx, bid, q)));
+}
+
+function answerAuction(oi, winnerIdx, bid, q){
+  const opts = document.querySelectorAll('.option-btn');
+  opts.forEach(b=>b.disabled=true);
+  opts[oi].classList.add(oi===q.correctIndex?'correct':'wrong');
+  opts[q.correctIndex].classList.add('correct');
+  if(oi === q.correctIndex){
+    budgets[winnerIdx] += bid*2;
+    EGL.beep('correct'); EGL.confetti(50);
+    EGL.toast(`✅ إجابة صحيحة! ${teams[winnerIdx].name} يربح ${bid} إضافية`);
+  } else {
+    EGL.beep('wrong');
+    EGL.toast(`❌ إجابة خاطئة — خسر ${teams[winnerIdx].name} مزايدته`);
+  }
+  updateBudgetStrip();
+  setTimeout(()=>{ qIdx++; nextRound(); }, 2200);
+}
+
+function showResults(){
+  EGL.confetti(120); EGL.beep('win');
+  const ranking = teams.map((t,i)=>({...t, score:budgets[i]})).sort((a,b)=>b.score-a.score);
+  const stage = document.getElementById('stage');
+  stage.innerHTML = `<div class="qcard">
+    <div style="font-size:3rem;">🏆</div><h2>انتهى المزاد!</h2>
+    <div class="scoreboard" style="justify-content:center;">
+      ${ranking.map((p,r)=>`<div class="player-chip ${r===0?'active':''}"><div style="font-size:1.4rem;">${r===0?'🥇':r===1?'🥈':r===2?'🥉':p.emoji}</div><div class="pname">${EGL.escapeHtml(p.name)}</div><div class="pscore">${p.score} 💰</div></div>`).join('')}
+    </div>
+    <div style="display:flex; gap:10px; justify-content:center; margin-top:16px;">
+      <button class="btn btn-primary" onclick="location.reload()">🔁 لعب مرة أخرى</button>
+      <a class="btn btn-outline" href="../index.html">🏠 الألعاب الأخرى</a>
+    </div>
+  </div>`;
+}
+
+init();
+</script>
+</body>
+</html>

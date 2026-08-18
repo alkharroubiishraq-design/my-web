@@ -1,0 +1,180 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>سفن المعرفة — ساحة الصف</title>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>⚓</text></svg>">
+<link rel="stylesheet" href="../css/style.css">
+<style>
+  .ship-grid{ display:grid; grid-template-columns: repeat(6, 1fr); gap:6px; width: min(420px, 92vw); margin: 14px auto; }
+  .ship-cell{ aspect-ratio:1/1; background: var(--surface-2); border-radius:8px; display:flex; align-items:center; justify-content:center; font-size:1.3rem; cursor:pointer; border:2px solid rgba(255,255,255,.08); transition:.15s; }
+  .ship-cell:hover{ border-color: var(--primary); }
+  .ship-cell.revealed{ cursor:default; }
+  .ship-cell.hit{ background: rgba(255,92,92,.35); border-color: var(--danger); }
+  .ship-cell.miss{ background: rgba(255,255,255,.06); }
+  .ship-cell.wrong{ background: rgba(120,120,140,.25); }
+  .ship-cell .own{ font-size:.65rem; position:absolute; }
+  .turn-banner{ text-align:center; font-weight:900; font-size:1.05rem; margin-bottom:6px; }
+  .fleet-status{ display:flex; gap:16px; justify-content:center; margin: 8px 0 4px; font-weight:800; font-size:.9rem; }
+</style>
+</head>
+<body>
+<nav class="topnav"><div class="container">
+  <a class="brand" href="../index.html"><span class="logo">🎲</span> ساحة الصف</a>
+  <div class="navlinks"><a href="../index.html">الرئيسية</a><a href="../index.html#games">الألعاب</a><a href="../questions.html">بنك الأسئلة</a></div>
+</div></nav>
+
+<div class="game-shell">
+  <div class="game-header container">
+    <h1>⚓ سفن المعرفة</h1>
+    <p>فريقان يتناوبان اختيار خلية من الشبكة — أجيبوا صح لتكتشفوا إن كانت سفينة مخبأة (نقاط ودور إضافي) أو ماءً فارغًا!</p>
+  </div>
+  <div class="game-stage container" id="stage"></div>
+</div>
+
+<script src="../js/common.js"></script>
+<script>
+const GRID = 6;
+const TOTAL = GRID*GRID;
+const SHIP_COUNT = 8;
+let teams, questions, qIdx, ships, revealed, scores, shipsFound, turnIdx, pendingIdx;
+
+function init(){
+  const stage = document.getElementById('stage');
+  stage.innerHTML = `<div class="empty-state"><div class="emoji">⚓</div><h3>هيّئ اللعبة</h3><p>لعبة تصلح لفريقين فقط — اختاروا خلية من الشبكة وأجيبوا لتكتشفوا محتواها!</p>
+    <button class="btn btn-primary" id="btn-setup">ابدأ الإعداد 🎮</button></div>`;
+  document.getElementById('btn-setup').addEventListener('click', openSetup);
+  openSetup();
+}
+function openSetup(){
+  EGL.openSetupModal({ title:'إعداد سفن المعرفة', allowIndividual:false, allowTeams:true, needQuestions:true, qType:['mcq','tf'], minPlayers:2, maxPlayers:2 }, startGame);
+}
+
+function startGame(cfg){
+  const bank = EGL.getBank(cfg.bankId);
+  questions = EGL.shuffle(bank.questions.filter(q=>q.type==='mcq'||q.type==='tf'));
+  if(questions.length < 6){ EGL.toast('تحتاج هذه اللعبة ٦ أسئلة اختيار/صح-خطأ على الأقل'); return; }
+  if(cfg.players.length !== 2){ EGL.toast('سفن المعرفة تحتاج فريقين بالضبط'); return; }
+  teams = cfg.players;
+  qIdx = 0;
+  scores = [0,0];
+  shipsFound = [0,0];
+  turnIdx = 0;
+  revealed = new Array(TOTAL).fill(null);
+  ships = new Set();
+  while(ships.size < SHIP_COUNT) ships.add(Math.floor(Math.random()*TOTAL));
+
+  const stage = document.getElementById('stage');
+  stage.innerHTML = `
+    <div class="turn-banner" id="turn-banner"></div>
+    <div class="fleet-status" id="fleet-status"></div>
+    <div class="ship-grid" id="grid"></div>
+    <div id="q-area"></div>`;
+  renderGrid();
+  updateBanner();
+}
+
+function renderGrid(){
+  const grid = document.getElementById('grid');
+  grid.innerHTML = '';
+  for(let i=0;i<TOTAL;i++){
+    const cell = document.createElement('div');
+    cell.className = 'ship-cell';
+    cell.dataset.i = i;
+    const r = revealed[i];
+    if(r){
+      cell.classList.add('revealed');
+      if(r.result === 'hit') { cell.classList.add('hit'); cell.textContent = '💥'; }
+      else if(r.result === 'miss') { cell.classList.add('miss'); cell.textContent = '🌊'; }
+      else { cell.classList.add('wrong'); cell.textContent = '❌'; }
+    } else {
+      cell.addEventListener('click', ()=> pickCell(i));
+    }
+    grid.appendChild(cell);
+  }
+}
+
+function updateBanner(){
+  document.getElementById('turn-banner').innerHTML = `🎯 دور: <span style="color:var(--accent-2)">${teams[turnIdx].emoji} ${EGL.escapeHtml(teams[turnIdx].name)}</span>`;
+  document.getElementById('fleet-status').innerHTML = teams.map((t,i)=>`<span>${t.emoji} ${EGL.escapeHtml(t.name)}: 🚢×${shipsFound[i]} — ${scores[i]} نقطة</span>`).join('<span>⚔️</span>');
+}
+
+function pickCell(i){
+  if(revealed[i]) return;
+  pendingIdx = i;
+  if(qIdx >= questions.length){ questions = EGL.shuffle(questions); qIdx = 0; }
+  const q = questions[qIdx++];
+  window._bsQ = q;
+  document.querySelectorAll('.ship-cell').forEach(c=>c.style.pointerEvents='none');
+  const area = document.getElementById('q-area');
+  area.innerHTML = `
+    <div class="qcard">
+      <div class="qmeta"><span class="badge">خلية رقم ${i+1}</span><span class="badge">${EGL.diffLabel(q.difficulty)}</span></div>
+      <div class="qtext">${EGL.escapeHtml(q.text)}</div>
+      <div class="options" id="opts">${q.options.map((o,oi)=>`<button class="option-btn" data-oi="${oi}">${EGL.escapeHtml(o)}</button>`).join('')}</div>
+    </div>`;
+  area.querySelectorAll('.option-btn').forEach(btn=>btn.addEventListener('click', ()=>answerCell(parseInt(btn.dataset.oi))));
+}
+
+function answerCell(oi){
+  const q = window._bsQ;
+  const opts = document.querySelectorAll('.option-btn');
+  opts.forEach(b=>b.disabled=true);
+  opts[oi].classList.add(oi===q.correctIndex?'correct':'wrong');
+  opts[q.correctIndex].classList.add('correct');
+  const correct = oi === q.correctIndex;
+  let result, keepTurn = false;
+  if(!correct){
+    result = 'wrong';
+    EGL.beep('wrong');
+  } else if(ships.has(pendingIdx)){
+    result = 'hit';
+    ships.delete(pendingIdx);
+    shipsFound[turnIdx]++;
+    scores[turnIdx] += 20;
+    keepTurn = true;
+    EGL.beep('correct'); EGL.confetti(40);
+    EGL.toast('💥 إصابة! سفينة مخبأة — دور إضافي');
+  } else {
+    result = 'miss';
+    scores[turnIdx] += 2;
+    EGL.beep('tick');
+    EGL.toast('🌊 ماء فارغ — دور الفريق الآخر');
+  }
+  revealed[pendingIdx] = { result, by: turnIdx };
+
+  setTimeout(()=>{
+    document.getElementById('q-area').innerHTML = '';
+    renderGrid();
+    const remaining = revealed.filter(r=>r===null).length;
+    if(ships.size === 0 || remaining === 0){ return endGame(); }
+    if(!keepTurn) turnIdx = 1 - turnIdx;
+    updateBanner();
+  }, 1600);
+}
+
+function endGame(){
+  EGL.confetti(150); EGL.beep('win');
+  let winnerIdx;
+  if(scores[0] === scores[1]) winnerIdx = undefined;
+  else winnerIdx = scores[0] > scores[1] ? 0 : 1;
+  const stage = document.getElementById('stage');
+  const html = winnerIdx !== undefined
+    ? `<h2>${teams[winnerIdx].emoji} ${EGL.escapeHtml(teams[winnerIdx].name)} يفوز بالمعركة! 🏆</h2>`
+    : `<h2>🤝 تعادل مثير!</h2>`;
+  stage.innerHTML = `<div class="qcard">
+    <div style="font-size:3rem;">⚓</div>
+    ${html}
+    <p class="hint">النتيجة النهائية: ${teams.map((t,i)=>`${t.name}: ${scores[i]}`).join(' — ')}</p>
+    <div style="display:flex; gap:10px; justify-content:center; margin-top:16px;">
+      <button class="btn btn-primary" onclick="location.reload()">🔁 معركة جديدة</button>
+      <a class="btn btn-outline" href="../index.html">🏠 الألعاب الأخرى</a>
+    </div>
+  </div>`;
+}
+
+init();
+</script>
+</body>
+</html>

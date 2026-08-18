@@ -1,0 +1,171 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>من أنا؟ — ساحة الصف</title>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>🕵️</text></svg>">
+<link rel="stylesheet" href="../css/style.css">
+<style>
+  .hints-list{ display:flex; flex-direction:column; gap:8px; margin: 12px 0; max-width:560px; margin-inline:auto; }
+  .hint-line{ background: var(--surface-2); border-radius:10px; padding:10px 14px; font-weight:700; text-align:right; }
+  .hint-line .hnum{ display:inline-flex; width:22px; height:22px; border-radius:50%; background: var(--accent-2); color:#332400; align-items:center; justify-content:center; font-weight:900; font-size:.78rem; margin-left:8px; }
+  .points-tag{ text-align:center; font-weight:900; color: var(--accent-2); margin-bottom:6px; }
+  .guess-zones{ display:grid; gap:12px; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); width:100%; max-width:800px; margin: 14px auto; }
+  .guess-zone{ background: var(--surface-2); border-radius:14px; padding:10px; text-align:center; box-shadow: var(--shadow); }
+  .guess-zone.won{ border:2px solid var(--success); box-shadow: 0 0 0 3px rgba(43,224,138,.3); }
+  .guess-zone input{ width:88%; padding:8px; border-radius:8px; border:none; background: var(--surface); color:#fff; font-family:inherit; font-weight:700; text-align:center; }
+  .guess-zone .gname{ font-weight:900; margin-bottom:6px; }
+  .guess-zone .gfeedback{ font-size:.75rem; min-height:14px; margin-top:4px; font-weight:800; }
+</style>
+</head>
+<body>
+<nav class="topnav"><div class="container">
+  <a class="brand" href="../index.html"><span class="logo">🎲</span> ساحة الصف</a>
+  <div class="navlinks"><a href="../index.html">الرئيسية</a><a href="../index.html#games">الألعاب</a><a href="../questions.html">بنك الأسئلة</a></div>
+</div></nav>
+
+<div class="game-shell">
+  <div class="game-header container">
+    <h1>🕵️ من أنا؟</h1>
+    <p>تلميحات تكشف تدريجيًا — كلما خمّنتم بتلميحات أقل ربحتم نقاطًا أكثر! أول فريق يخمّن الكلمة السرية صحيحة يفوز بالجولة.</p>
+  </div>
+  <div class="game-stage container" id="stage"></div>
+</div>
+
+<script src="../js/common.js"></script>
+<script>
+let teams, scores, pool, poolIdx, round, ROUNDS, secret, hints, hintsShown, roundOver;
+
+function init(){
+  const stage = document.getElementById('stage');
+  stage.innerHTML = `<div class="empty-state"><div class="emoji">🕵️</div><h3>هيّئ اللعبة</h3><p>تحتاج بنك أسئلة فيه إجابات نصية قصيرة (كلمات أو مصطلحات).</p>
+    <button class="btn btn-primary" id="btn-setup">ابدأ الإعداد 🎮</button></div>`;
+  document.getElementById('btn-setup').addEventListener('click', openSetup);
+  openSetup();
+}
+function openSetup(){
+  EGL.openSetupModal({ title:'إعداد من أنا؟', allowIndividual:true, allowTeams:true, needQuestions:true, minPlayers:1, maxPlayers:6 }, startGame);
+}
+
+function normalize(s){ return (s||'').trim().toLowerCase().replace(/[إأآا]/g,'ا').replace(/ة/g,'ه').replace(/\s+/g,' '); }
+
+function startGame(cfg){
+  const bank = EGL.getBank(cfg.bankId);
+  pool = EGL.shuffle(bank.questions.filter(q => q.answerText && q.answerText.trim().length >= 2 && q.answerText.trim().length <= 20));
+  if(pool.length < 3){ EGL.toast('تحتاج هذه اللعبة أسئلة ذات إجابات نصية قصيرة (٣ على الأقل)'); return; }
+  teams = cfg.players;
+  scores = teams.map(()=>0);
+  poolIdx = 0;
+  round = 0;
+  ROUNDS = Math.min(8, pool.length);
+  const stage = document.getElementById('stage');
+  stage.innerHTML = `<div id="round-badge" class="badge" style="display:block; text-align:center; margin-bottom:8px;"></div><div id="game-area"></div>`;
+  nextRound();
+}
+
+function buildHints(q, secretText){
+  const clean = secretText.replace(/\s/g,'');
+  return [
+    `📚 الفئة: ${q.category || 'عام'}`,
+    `🔢 عدد الأحرف: ${clean.length}`,
+    `🔤 يبدأ بحرف: "${clean[0]}"`,
+    `❓ التلميح الأخير — السؤال الأصلي: ${q.text}`,
+  ];
+}
+
+function nextRound(){
+  round++;
+  if(round > ROUNDS || poolIdx >= pool.length){ return showResults(); }
+  document.getElementById('round-badge').textContent = `🕵️ الجولة ${round} / ${ROUNDS}`;
+  renderRound();
+}
+
+function renderRound(){
+  const q = pool[poolIdx++];
+  secret = q.answerText.trim();
+  hints = buildHints(q, secret);
+  hintsShown = 0;
+  roundOver = false;
+  const area = document.getElementById('game-area');
+  area.innerHTML = `
+    <div class="qcard" style="text-align:center;">
+      <div class="points-tag" id="points-tag">🏅 قيمة الجولة الحالية: 20 نقطة</div>
+      <div class="hints-list" id="hints-list"></div>
+      <button class="btn btn-outline" id="btn-hint">💡 اطلب تلميحًا جديدًا (${hints.length} متاحة)</button>
+    </div>
+    <div class="guess-zones" id="guess-zones"></div>`;
+  document.getElementById('btn-hint').addEventListener('click', revealHint);
+  const zones = document.getElementById('guess-zones');
+  zones.innerHTML = teams.map((t,i)=>`
+    <div class="guess-zone" id="gzone-${i}">
+      <div class="gname">${t.emoji} ${EGL.escapeHtml(t.name)}</div>
+      <input type="text" id="guess-${i}" placeholder="اكتبوا تخمينكم...">
+      <div style="margin-top:6px;"><button class="btn btn-accent btn-sm" data-i="${i}">✅ خمّن</button></div>
+      <div class="gfeedback" id="gfeedback-${i}"></div>
+    </div>`).join('');
+  zones.querySelectorAll('[data-i]').forEach(btn=>{
+    btn.addEventListener('click', ()=>submitGuess(parseInt(btn.dataset.i)));
+  });
+  zones.querySelectorAll('input').forEach((inp,i)=>{
+    inp.addEventListener('keydown', e=>{ if(e.key==='Enter') submitGuess(i); });
+  });
+}
+
+function revealHint(){
+  if(hintsShown >= hints.length) return;
+  const list = document.getElementById('hints-list');
+  const line = document.createElement('div');
+  line.className = 'hint-line';
+  line.innerHTML = `<span class="hnum">${hintsShown+1}</span>${EGL.escapeHtml(hints[hintsShown])}`;
+  list.appendChild(line);
+  hintsShown++;
+  EGL.beep('tick');
+  const pts = Math.max(4, 20 - hintsShown*4);
+  document.getElementById('points-tag').textContent = `🏅 قيمة الجولة الحالية: ${pts} نقطة`;
+  const btn = document.getElementById('btn-hint');
+  if(hintsShown >= hints.length){ btn.disabled = true; btn.textContent = '💡 لا مزيد من التلميحات'; }
+  else btn.textContent = `💡 اطلب تلميحًا جديدًا (${hints.length - hintsShown} متبقٍ)`;
+}
+
+function submitGuess(ti){
+  if(roundOver) return;
+  const val = document.getElementById('guess-'+ti).value;
+  if(!val.trim()) return;
+  if(normalize(val) === normalize(secret)){
+    roundOver = true;
+    const pts = Math.max(4, 20 - hintsShown*4);
+    scores[ti] += pts;
+    EGL.beep('correct'); EGL.confetti(60);
+    document.getElementById('gzone-'+ti).classList.add('won');
+    document.getElementById('gfeedback-'+ti).textContent = `✅ +${pts} نقطة!`;
+    document.querySelectorAll('.guess-zone input, .guess-zone button').forEach(el=>el.disabled=true);
+    document.getElementById('btn-hint').disabled = true;
+    EGL.toast(`🎉 ${teams[ti].name} خمّن الكلمة الصحيحة: ${secret}`);
+    setTimeout(nextRound, 2000);
+  } else {
+    EGL.beep('wrong');
+    document.getElementById('gfeedback-'+ti).textContent = '❌ ليست صحيحة، حاولوا مجددًا';
+  }
+}
+
+function showResults(){
+  EGL.confetti(100); EGL.beep('win');
+  const ranking = teams.map((t,i)=>({...t, score:scores[i]})).sort((a,b)=>b.score-a.score);
+  const stage = document.getElementById('stage');
+  stage.innerHTML = `<div class="qcard">
+    <div style="font-size:3rem;">🏆</div><h2>انتهت الجولات!</h2>
+    <div class="scoreboard" style="justify-content:center;">
+      ${ranking.map((p,r)=>`<div class="player-chip ${r===0?'active':''}"><div style="font-size:1.4rem;">${r===0?'🥇':r===1?'🥈':r===2?'🥉':p.emoji}</div><div class="pname">${EGL.escapeHtml(p.name)}</div><div class="pscore">${p.score}</div></div>`).join('')}
+    </div>
+    <div style="display:flex; gap:10px; justify-content:center; margin-top:16px;">
+      <button class="btn btn-primary" onclick="location.reload()">🔁 لعب مرة أخرى</button>
+      <a class="btn btn-outline" href="../index.html">🏠 الألعاب الأخرى</a>
+    </div>
+  </div>`;
+}
+
+init();
+</script>
+</body>
+</html>
