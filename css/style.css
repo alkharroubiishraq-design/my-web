@@ -171,6 +171,10 @@ p{ line-height:1.8; color: var(--text-dim); }
 .gc-43{ background: linear-gradient(160deg, #c94a7d 0%, #4a1230 100%); }
 .gc-44{ background: linear-gradient(160deg, #4a6fc9 0%, #12204a 100%); }
 .gc-45{ background: linear-gradient(160deg, #c9974a 0%, #4a3312 100%); }
+.gc-46{ background: linear-gradient(160deg, #4ac9ac 0%, #124a3c 100%); }
+.gc-47{ background: linear-gradient(160deg, #c96b4a 0%, #4a1f12 100%); }
+.gc-48{ background: linear-gradient(160deg, #8a4ac9 0%, #2c124a 100%); }
+.gc-49{ background: linear-gradient(160deg, #4a90c9 0%, #12354a 100%); }
 
 .games-section{ margin-bottom: 44px; }
 .games-section .section-title h2{ font-size: 1.4rem; }

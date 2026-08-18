@@ -1,0 +1,199 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>بينغو المعرفة — ساحة الصف</title>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>🎯</text></svg>">
+<link rel="stylesheet" href="../css/style.css">
+<style>
+  .bingo-boards{ display:grid; gap:16px; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); width:100%; max-width:940px; margin: 10px auto; }
+  .bingo-card{ background: var(--surface-2); border-radius:14px; padding:12px; box-shadow: var(--shadow); border:2px solid rgba(255,255,255,.08); }
+  .bingo-card.won{ border-color: var(--success); box-shadow: 0 0 0 3px rgba(43,224,138,.3); }
+  .bingo-name{ text-align:center; font-weight:900; margin-bottom:8px; }
+  .bingo-grid{ display:grid; gap:5px; }
+  .bingo-cell{ background: var(--surface); border-radius:8px; padding:6px 3px; font-size:.72rem; font-weight:700; text-align:center; min-height:44px; display:flex; align-items:center; justify-content:center; word-break:break-word; transition: background .2s, transform .2s; }
+  .bingo-cell.marked{ background: rgba(43,224,138,.45); transform: scale(.96); }
+  .call-box{ text-align:center; margin: 6px 0 18px; }
+  .call-q{ font-size:1.15rem; font-weight:800; margin-bottom:8px; }
+  .call-answer{ font-size:1.3rem; font-weight:900; color: var(--accent-2); min-height:1.6em; }
+</style>
+</head>
+<body>
+<nav class="topnav"><div class="container">
+  <a class="brand" href="../index.html"><span class="logo">🎲</span> ساحة الصف</a>
+  <div class="navlinks"><a href="../index.html">الرئيسية</a><a href="../index.html#games">الألعاب</a><a href="../questions.html">بنك الأسئلة</a></div>
+</div></nav>
+
+<div class="game-shell">
+  <div class="game-header container">
+    <h1>🎯 بينغو المعرفة</h1>
+    <p>كل فريق يملك لوحة إجابات خاصة به — كلما ظهرت إجابة سؤال على لوحتكم علّموها، وأول من يكمل خطًا كاملًا يصرخ "بينغو!"</p>
+  </div>
+  <div class="game-stage container" id="stage"></div>
+</div>
+
+<script src="../js/common.js"></script>
+<script>
+let teams, boards, GRID, questions, qIdx, revealed=false, autoTimer;
+
+function init(){
+  const stage = document.getElementById('stage');
+  stage.innerHTML = `<div class="empty-state"><div class="emoji">🎯</div><h3>هيّئ اللعبة</h3><p>تحتاج بنكًا فيه ١٦ إجابة قصيرة مختلفة على الأقل (من أسئلة اختيار أو أسئلة مفتوحة) لبناء لوحات البينغو.</p>
+    <button class="btn btn-primary" id="btn-setup">ابدأ الإعداد 🎮</button></div>`;
+  document.getElementById('btn-setup').addEventListener('click', openSetup);
+  openSetup();
+}
+function openSetup(){
+  EGL.openSetupModal({ title:'إعداد بينغو المعرفة', allowIndividual:true, allowTeams:true, needQuestions:true, qType:['mcq','open'], minPlayers:2, maxPlayers:6 }, startGame);
+}
+
+function collectAnswerPool(bank){
+  const set = new Map();
+  bank.questions.forEach(q=>{
+    let ans = null;
+    if(q.type === 'mcq' && q.options && q.correctIndex !== undefined) ans = q.options[q.correctIndex];
+    else if(q.type === 'open' && q.answerText) ans = q.answerText;
+    if(!ans) return;
+    ans = ans.trim();
+    if(ans.length < 1 || ans.length > 22) return;
+    const key = ans.toLowerCase();
+    if(!set.has(key)) set.set(key, { text: ans, q });
+  });
+  return Array.from(set.values());
+}
+
+function startGame(cfg){
+  const bank = EGL.getBank(cfg.bankId);
+  const pool = collectAnswerPool(bank);
+  GRID = pool.length >= 16 ? 4 : (pool.length >= 9 ? 3 : 0);
+  if(!GRID){ EGL.toast('تحتاج ٩ إجابات مختلفة على الأقل (اختيار أو مفتوحة) لبناء لوحة بينغو'); return; }
+  const cellCount = GRID*GRID;
+  teams = cfg.players;
+  questions = EGL.shuffle(pool.map(p=>p.q));
+  qIdx = 0;
+
+  boards = teams.map(()=>{
+    const picks = EGL.shuffle(pool).slice(0, cellCount);
+    return picks.map(p=>({ text:p.text, marked:false }));
+  });
+
+  const stage = document.getElementById('stage');
+  stage.innerHTML = `
+    <div class="call-box">
+      <div class="badge" id="progress-badge" style="display:inline-block; margin-bottom:6px;"></div>
+      <div class="call-q" id="call-q"></div>
+      <div class="call-answer" id="call-answer"></div>
+      <button class="btn btn-gold" id="btn-reveal">🔎 اكشف الإجابة</button>
+    </div>
+    <div class="bingo-boards" id="boards"></div>`;
+  renderBoards();
+  nextCall();
+}
+
+function renderBoards(){
+  const wrap = document.getElementById('boards');
+  wrap.innerHTML = teams.map((t,ti)=>`
+    <div class="bingo-card" id="card-${ti}">
+      <div class="bingo-name">${t.emoji} ${EGL.escapeHtml(t.name)}</div>
+      <div class="bingo-grid" style="grid-template-columns: repeat(${GRID}, 1fr);" id="grid-${ti}">
+        ${boards[ti].map((c,ci)=>`<div class="bingo-cell" data-t="${ti}" data-c="${ci}">${EGL.escapeHtml(c.text)}</div>`).join('')}
+      </div>
+      <div style="text-align:center; margin-top:8px;"><button class="btn btn-accent btn-sm" data-claim="${ti}">🎉 بينغو!</button></div>
+    </div>`).join('');
+  wrap.querySelectorAll('[data-claim]').forEach(btn=>{
+    btn.addEventListener('click', ()=> claimBingo(parseInt(btn.dataset.claim)));
+  });
+}
+
+function nextCall(){
+  if(qIdx >= questions.length){ questions = EGL.shuffle(questions); qIdx = 0; }
+  revealed = false;
+  const q = questions[qIdx];
+  document.getElementById('progress-badge').textContent = `نداء رقم ${qIdx+1}`;
+  document.getElementById('call-q').textContent = q.text;
+  document.getElementById('call-answer').textContent = '';
+  const btn = document.getElementById('btn-reveal');
+  btn.style.display = 'inline-flex';
+  btn.disabled = false;
+  btn.onclick = revealCall;
+}
+
+function revealCall(){
+  if(revealed) return;
+  revealed = true;
+  const q = questions[qIdx];
+  const ans = (q.type === 'mcq' ? q.options[q.correctIndex] : q.answerText).trim();
+  document.getElementById('call-answer').textContent = '✅ ' + ans;
+  document.getElementById('btn-reveal').style.display = 'none';
+  EGL.beep('correct');
+  markBoards(ans);
+  autoTimer = setTimeout(()=>{ qIdx++; nextCall(); }, 3200);
+}
+
+function markBoards(ans){
+  const key = ans.trim().toLowerCase();
+  boards.forEach((board, ti)=>{
+    board.forEach((c, ci)=>{
+      if(!c.marked && c.text.trim().toLowerCase() === key){
+        c.marked = true;
+        const cell = document.querySelector(`.bingo-cell[data-t="${ti}"][data-c="${ci}"]`);
+        if(cell) cell.classList.add('marked');
+      }
+    });
+  });
+}
+
+function hasLine(board){
+  for(let r=0;r<GRID;r++){
+    if(board.slice(r*GRID, r*GRID+GRID).every(c=>c.marked)) return true;
+  }
+  for(let c=0;c<GRID;c++){
+    let all = true;
+    for(let r=0;r<GRID;r++) if(!board[r*GRID+c].marked) all = false;
+    if(all) return true;
+  }
+  let d1 = true, d2 = true;
+  for(let i=0;i<GRID;i++){
+    if(!board[i*GRID+i].marked) d1 = false;
+    if(!board[i*GRID + (GRID-1-i)].marked) d2 = false;
+  }
+  return d1 || d2;
+}
+
+function claimBingo(ti){
+  if(hasLine(boards[ti])){
+    clearTimeout(autoTimer);
+    winGame(ti);
+  } else {
+    EGL.beep('wrong');
+    EGL.toast('لا يوجد خط مكتمل بعد على هذه اللوحة! 🤔');
+    const card = document.getElementById('card-'+ti);
+    card.style.animation = 'none';
+    requestAnimationFrame(()=>{ card.style.transition='transform .1s'; card.style.transform='translateX(6px)'; setTimeout(()=>card.style.transform='translateX(-6px)',100); setTimeout(()=>card.style.transform='',200); });
+  }
+}
+
+function winGame(ti){
+  EGL.confetti(140); EGL.beep('win');
+  document.getElementById('card-'+ti).classList.add('won');
+  const stage = document.getElementById('stage');
+  const banner = document.createElement('div');
+  banner.className = 'qcard';
+  banner.style.marginTop = '18px';
+  banner.innerHTML = `
+    <div style="font-size:3rem;">🏆</div>
+    <h2>${teams[ti].emoji} ${EGL.escapeHtml(teams[ti].name)} صرخ "بينغو!" أولًا 🎉</h2>
+    <div style="display:flex; gap:10px; justify-content:center; margin-top:16px;">
+      <button class="btn btn-primary" onclick="location.reload()">🔁 لعب مرة أخرى</button>
+      <a class="btn btn-outline" href="../index.html">🏠 الألعاب الأخرى</a>
+    </div>`;
+  stage.appendChild(banner);
+  document.getElementById('btn-reveal').disabled = true;
+  document.querySelectorAll('[data-claim]').forEach(b=>b.disabled = true);
+}
+
+init();
+</script>
+</body>
+</html>

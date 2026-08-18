@@ -1,0 +1,189 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>البطاطا الساخنة — ساحة الصف</title>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>🥔</text></svg>">
+<link rel="stylesheet" href="../css/style.css">
+<style>
+  .circle-wrap{ display:flex; flex-wrap:wrap; gap:12px; justify-content:center; margin: 16px 0; }
+  .holder-chip{ background: var(--surface-2); border-radius:14px; padding:10px 14px; text-align:center; min-width:84px; border:3px solid transparent; opacity:.55; transition:.2s; }
+  .holder-chip.out{ opacity:.25; text-decoration:line-through; }
+  .holder-chip.holding{ opacity:1; border-color: var(--accent-2); box-shadow: 0 0 0 4px rgba(255,210,63,.25); transform: scale(1.06); }
+  .holder-chip .hemoji{ font-size:1.7rem; }
+  .potato-stage{ text-align:center; padding: 18px 10px; }
+  .potato-emoji{ font-size:5rem; display:inline-block; }
+  .potato-emoji.passing{ animation: potatobounce .35s ease-in-out infinite; }
+  @keyframes potatobounce{ 0%,100%{ transform: translateY(0) rotate(-8deg);} 50%{ transform: translateY(-10px) rotate(8deg);} }
+  .frozen-emoji{ font-size:5rem; filter: grayscale(0) drop-shadow(0 0 14px rgba(255,92,92,.6)); }
+</style>
+</head>
+<body>
+<nav class="topnav"><div class="container">
+  <a class="brand" href="../index.html"><span class="logo">🎲</span> ساحة الصف</a>
+  <div class="navlinks"><a href="../index.html">الرئيسية</a><a href="../index.html#games">الألعاب</a><a href="../questions.html">بنك الأسئلة</a></div>
+</div></nav>
+
+<div class="game-shell">
+  <div class="game-header container">
+    <h1>🥔 البطاطا الساخنة</h1>
+    <p>مرّروا البطاطا بسرعة بالضغط على الزر — من تتوقف بيده حين تنطفئ الموسيقى عليه الإجابة بسرعة لينجو!</p>
+  </div>
+  <div class="game-stage container" id="stage"></div>
+</div>
+
+<script src="../js/common.js"></script>
+<script>
+const ANSWER_TIME = 10;
+let players, alive, holderIdx, questions, qIdx, passTimer, answerTimerInt, timeLeft;
+
+function init(){
+  const stage = document.getElementById('stage');
+  stage.innerHTML = `<div class="empty-state"><div class="emoji">🥔</div><h3>هيّئ اللعبة</h3><p>مثالية لـ ٣ لاعبين أو أكثر يقفون بدائرة حول جهاز واحد أو الشاشة التفاعلية.</p>
+    <button class="btn btn-primary" id="btn-setup">ابدأ الإعداد 🎮</button></div>`;
+  document.getElementById('btn-setup').addEventListener('click', openSetup);
+  openSetup();
+}
+function openSetup(){
+  EGL.openSetupModal({ title:'إعداد البطاطا الساخنة', allowIndividual:true, allowTeams:true, needQuestions:true, qType:['mcq','tf'], minPlayers:3, maxPlayers:8 }, startGame);
+}
+
+function startGame(cfg){
+  const bank = EGL.getBank(cfg.bankId);
+  questions = EGL.shuffle(bank.questions.filter(q=>q.type==='mcq'||q.type==='tf'));
+  if(!questions.length){ EGL.toast('لا توجد أسئلة اختيار/صح-خطأ في هذا البنك'); return; }
+  qIdx = 0;
+  players = cfg.players;
+  alive = players.map(()=>true);
+  holderIdx = 0;
+
+  const stage = document.getElementById('stage');
+  stage.innerHTML = `<div class="circle-wrap" id="circle"></div><div id="potato-area"></div>`;
+  renderCircle();
+  startPassRound();
+}
+
+function nextAlive(from){
+  let i = from;
+  for(let n=0;n<players.length;n++){
+    i = (i+1) % players.length;
+    if(alive[i]) return i;
+  }
+  return from;
+}
+
+function renderCircle(){
+  const wrap = document.getElementById('circle');
+  wrap.innerHTML = players.map((p,i)=>`
+    <div class="holder-chip ${!alive[i]?'out':''} ${i===holderIdx && alive[i] ?'holding':''}" id="chip-${i}">
+      <div class="hemoji">${p.emoji}</div><div style="font-size:.78rem; font-weight:800;">${EGL.escapeHtml(p.name)}</div>
+    </div>`).join('');
+}
+
+function updateHolding(){
+  players.forEach((_,i)=>{
+    const chip = document.getElementById('chip-'+i);
+    if(!chip) return;
+    chip.classList.toggle('holding', i===holderIdx && alive[i]);
+  });
+}
+
+function startPassRound(){
+  clearTimeout(passTimer);
+  const area = document.getElementById('potato-area');
+  area.innerHTML = `
+    <div class="qcard potato-stage">
+      <div class="potato-emoji passing" id="potato-emoji">🥔</div>
+      <p class="hint">مرّروها بسرعة! لا أحد يعرف متى ستتوقف الموسيقى 🎵</p>
+      <button class="btn btn-gold" id="btn-pass">➡️ مرّر البطاطا</button>
+    </div>`;
+  document.getElementById('btn-pass').addEventListener('click', ()=>{
+    holderIdx = nextAlive(holderIdx);
+    updateHolding();
+    EGL.beep('tick');
+  });
+  const delay = 3000 + Math.random()*5000;
+  passTimer = setTimeout(stopMusic, delay);
+}
+
+function stopMusic(){
+  const emoji = document.getElementById('potato-emoji');
+  if(emoji){ emoji.classList.remove('passing'); emoji.classList.add('frozen-emoji'); emoji.textContent = '🥔'; }
+  const btn = document.getElementById('btn-pass');
+  if(btn) btn.disabled = true;
+  EGL.beep('wrong');
+  EGL.toast(`🚨 توقفت الموسيقى! البطاطا مع ${players[holderIdx].name}`);
+  setTimeout(presentChallenge, 1200);
+}
+
+function presentChallenge(){
+  if(qIdx >= questions.length){ questions = EGL.shuffle(questions); qIdx = 0; }
+  const q = questions[qIdx++];
+  window._hpQ = q;
+  timeLeft = ANSWER_TIME;
+  const area = document.getElementById('potato-area');
+  area.innerHTML = `
+    <div class="qcard">
+      <div class="qmeta"><span class="badge">🥔 ${EGL.escapeHtml(players[holderIdx].name)} يجيب لينجو!</span></div>
+      <div class="qtext">${EGL.escapeHtml(q.text)}</div>
+      <div class="timer-bar"><div id="timer-fill" style="width:100%"></div></div>
+      <div class="options" id="opts">${q.options.map((o,i)=>`<button class="option-btn" data-i="${i}">${EGL.escapeHtml(o)}</button>`).join('')}</div>
+    </div>`;
+  document.querySelectorAll('.option-btn').forEach(btn=>btn.addEventListener('click', ()=>answerChallenge(parseInt(btn.dataset.i))));
+  answerTimerInt = setInterval(()=>{
+    timeLeft--;
+    const fill = document.getElementById('timer-fill');
+    if(fill) fill.style.width = (timeLeft/ANSWER_TIME*100)+'%';
+    if(timeLeft<=0) answerChallenge(-1);
+  }, 1000);
+}
+
+function answerChallenge(i){
+  clearInterval(answerTimerInt);
+  const opts = document.querySelectorAll('.option-btn');
+  if(!opts.length) return;
+  opts.forEach(b=>b.disabled=true);
+  const q = window._hpQ;
+  if(i>=0) opts[i].classList.add(i===q.correctIndex ? 'correct' : 'wrong');
+  opts[q.correctIndex].classList.add('correct');
+  const survived = i === q.correctIndex;
+  if(survived){
+    EGL.beep('correct'); EGL.confetti(40);
+    EGL.toast(`🎉 ${players[holderIdx].name} أجاب صح ونجا!`);
+  } else {
+    EGL.beep('wrong');
+    alive[holderIdx] = false;
+    EGL.toast(`❌ ${players[holderIdx].name} خرج من اللعبة!`);
+    renderCircle();
+  }
+  const stillAlive = players.map((_,i)=>i).filter(i=>alive[i]);
+  setTimeout(()=>{
+    if(stillAlive.length <= 1){ return endGame(stillAlive[0]); }
+    holderIdx = survived ? nextAlive(holderIdx) : (alive[holderIdx] ? holderIdx : nextAlive(holderIdx));
+    updateHolding();
+    startPassRound();
+  }, 1600);
+}
+
+function endGame(winnerIdx){
+  clearTimeout(passTimer); clearInterval(answerTimerInt);
+  EGL.confetti(150); EGL.beep('win');
+  const stage = document.getElementById('stage');
+  const winnerHtml = winnerIdx !== undefined
+    ? `<h2>${players[winnerIdx].emoji} ${EGL.escapeHtml(players[winnerIdx].name)} نجا حتى النهاية! 🏆</h2>`
+    : `<h2>🤝 خرج الجميع بنفس الجولة — تعادل!</h2>`;
+  stage.innerHTML = `<div class="qcard">
+    <div style="font-size:3rem;">🥔</div>
+    ${winnerHtml}
+    <div style="display:flex; gap:10px; justify-content:center; margin-top:16px;">
+      <button class="btn btn-primary" onclick="location.reload()">🔁 لعب مرة أخرى</button>
+      <a class="btn btn-outline" href="../index.html">🏠 الألعاب الأخرى</a>
+    </div>
+  </div>`;
+}
+
+init();
+</script>
+</body>
+</html>

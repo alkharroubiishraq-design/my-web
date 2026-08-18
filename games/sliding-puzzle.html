@@ -1,0 +1,242 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>لغز الأرقام المنزلق — ساحة الصف</title>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>🧩</text></svg>">
+<link rel="stylesheet" href="../css/style.css">
+<style>
+  .puz-zones{ display:grid; gap:16px; grid-template-columns: repeat(auto-fit, minmax(230px, 1fr)); width:100%; max-width:940px; margin: 10px auto; }
+  .puz-zone{ background: var(--surface-2); border-radius:14px; padding:12px; box-shadow: var(--shadow); border:2px solid rgba(255,255,255,.08); text-align:center; }
+  .puz-zone.solved{ border-color: var(--success); box-shadow: 0 0 0 3px rgba(43,224,138,.3); }
+  .puz-zname{ font-weight:900; margin-bottom:4px; }
+  .puz-tokens{ font-size:.8rem; color: var(--accent-2); font-weight:800; margin-bottom:8px; }
+  .puz-grid{ display:grid; grid-template-columns: repeat(3,1fr); gap:5px; width: min(180px, 90%); margin: 0 auto 10px; aspect-ratio:1/1; }
+  .puz-tile{ background: var(--surface); border-radius:8px; display:flex; align-items:center; justify-content:center; font-weight:900; font-size:1.3rem; cursor:pointer; user-select:none; }
+  .puz-tile.blank{ background: transparent; cursor:default; }
+  .puz-zopts{ display:grid; grid-template-columns: 1fr 1fr; gap:6px; }
+  .puz-zopts button{ padding:8px 4px; border-radius:8px; border:none; background: var(--surface); color:#fff; font-family:inherit; font-weight:700; font-size:.78rem; cursor:pointer; }
+  .puz-zopts button:disabled{ opacity:.4; }
+  .puz-zopts button.correct{ background: rgba(43,224,138,.4); }
+  .puz-zopts button.wrong{ background: rgba(255,92,92,.4); }
+</style>
+</head>
+<body>
+<nav class="topnav"><div class="container">
+  <a class="brand" href="../index.html"><span class="logo">🎲</span> ساحة الصف</a>
+  <div class="navlinks"><a href="../index.html">الرئيسية</a><a href="../index.html#games">الألعاب</a><a href="../questions.html">بنك الأسئلة</a></div>
+</div></nav>
+
+<div class="game-shell">
+  <div class="game-header container">
+    <h1>🧩 لغز الأرقام المنزلق</h1>
+    <p>أجيبوا بسرعة لتكسبوا "حركات" تحرّكون بها المربعات — أول فريق يرتّب الأرقام ١-٨ بالكامل يفوز!</p>
+  </div>
+  <div class="game-stage container" id="stage"></div>
+</div>
+
+<script src="../js/common.js"></script>
+<script>
+const ANSWER_TIME = 8;
+let teams, boards, questions, qIdx, zoneAnswered, roundStart, timerInt, timeLeft, gameOver=false;
+
+function init(){
+  const stage = document.getElementById('stage');
+  stage.innerHTML = `<div class="empty-state"><div class="emoji">🧩</div><h3>هيّئ اللعبة</h3><p>فريقان أو أكثر يتسابقون على حل نفس اللغز — كل إجابة صحيحة تمنح حركة واحدة.</p>
+    <button class="btn btn-primary" id="btn-setup">ابدأ الإعداد 🎮</button></div>`;
+  document.getElementById('btn-setup').addEventListener('click', openSetup);
+  openSetup();
+}
+function openSetup(){
+  EGL.openSetupModal({ title:'إعداد لغز الأرقام المنزلق', allowIndividual:false, allowTeams:true, needQuestions:true, qType:['mcq','tf'], minPlayers:2, maxPlayers:4 }, startGame);
+}
+
+function neighbors(idx){
+  const row = Math.floor(idx/3), col = idx%3;
+  const list = [];
+  if(col>0) list.push(idx-1);
+  if(col<2) list.push(idx+1);
+  if(row>0) list.push(idx-3);
+  if(row<2) list.push(idx+3);
+  return list;
+}
+
+function shuffledSolvableBoard(){
+  const tiles = [1,2,3,4,5,6,7,8,0];
+  let blank = 8;
+  for(let i=0;i<80;i++){
+    const opts = neighbors(blank);
+    const pick = opts[Math.floor(Math.random()*opts.length)];
+    [tiles[blank], tiles[pick]] = [tiles[pick], tiles[blank]];
+    blank = pick;
+  }
+  return tiles;
+}
+
+function startGame(cfg){
+  const bank = EGL.getBank(cfg.bankId);
+  questions = EGL.shuffle(bank.questions.filter(q=>q.type==='mcq'||q.type==='tf'));
+  if(!questions.length){ EGL.toast('لا توجد أسئلة اختيار/صح-خطأ في هذا البنك'); return; }
+  qIdx = 0;
+  teams = cfg.players;
+  gameOver = false;
+  const startTiles = shuffledSolvableBoard();
+  boards = teams.map(()=>({ tiles:[...startTiles], tokens:0, solved:false }));
+
+  const stage = document.getElementById('stage');
+  stage.innerHTML = `<div id="qarea"></div><div class="puz-zones" id="puz-zones"></div>`;
+  renderZones();
+  nextQuestion();
+}
+
+function renderZones(){
+  const wrap = document.getElementById('puz-zones');
+  wrap.innerHTML = teams.map((t,ti)=>`
+    <div class="puz-zone ${boards[ti].solved?'solved':''}" id="pzone-${ti}">
+      <div class="puz-zname">${t.emoji} ${EGL.escapeHtml(t.name)}</div>
+      <div class="puz-tokens" id="ptokens-${ti}">🔓 حركات متاحة: ${boards[ti].tokens}</div>
+      <div class="puz-grid" id="pgrid-${ti}"></div>
+      <div class="puz-zopts" id="pzopts-${ti}"></div>
+    </div>`).join('');
+  teams.forEach((_,ti)=>renderGrid(ti));
+}
+
+function renderGrid(ti){
+  const grid = document.getElementById('pgrid-'+ti);
+  const board = boards[ti];
+  grid.innerHTML = board.tiles.map((v,idx)=>`<div class="puz-tile ${v===0?'blank':''}" data-ti="${ti}" data-idx="${idx}">${v===0?'':v}</div>`).join('');
+  grid.querySelectorAll('.puz-tile').forEach(el=>el.addEventListener('click', ()=>tileClick(ti, parseInt(el.dataset.idx))));
+}
+
+function tileClick(ti, idx){
+  if(gameOver) return;
+  const board = boards[ti];
+  if(board.solved || board.tokens<=0) return;
+  const blank = board.tiles.indexOf(0);
+  if(!neighbors(blank).includes(idx)) return;
+  [board.tiles[blank], board.tiles[idx]] = [board.tiles[idx], board.tiles[blank]];
+  board.tokens--;
+  document.getElementById('ptokens-'+ti).textContent = `🔓 حركات متاحة: ${board.tokens}`;
+  EGL.beep('tick');
+  renderGrid(ti);
+  const solved = board.tiles.every((v,i) => v === (i<8 ? i+1 : 0));
+  if(solved){ board.solved = true; winGame(ti); }
+}
+
+function nextQuestion(){
+  if(gameOver) return;
+  if(qIdx >= questions.length){ questions = EGL.shuffle(questions); qIdx = 0; }
+  renderQuestion();
+}
+
+function renderQuestion(){
+  clearInterval(timerInt);
+  zoneAnswered = teams.map(()=>null);
+  const q = questions[qIdx];
+  const area = document.getElementById('qarea');
+  area.innerHTML = `
+    <div class="qcard" style="margin-bottom:6px;">
+      <div class="qtext" id="shared-q" style="visibility:hidden;">${EGL.escapeHtml(q.text)}</div>
+      <div style="text-align:center;"><button class="btn btn-gold" id="btn-reveal">⚡ اعرض السؤال للجميع!</button></div>
+      <div class="timer-bar" style="margin-top:12px;"><div id="timer-fill" style="width:100%"></div></div>
+    </div>`;
+  teams.forEach((_,ti)=>{
+    document.getElementById('pzopts-'+ti).innerHTML = q.options.map((o,oi)=>`<button data-oi="${oi}" disabled>${EGL.escapeHtml(o)}</button>`).join('');
+    document.getElementById('pzopts-'+ti).querySelectorAll('button').forEach(btn=>{
+      btn.addEventListener('click', ()=> zoneAnswer(ti, parseInt(btn.dataset.oi)));
+    });
+  });
+  document.getElementById('btn-reveal').addEventListener('click', startCountdown);
+}
+
+function startCountdown(){
+  document.getElementById('btn-reveal').disabled = true;
+  let n = 3;
+  const box = document.getElementById('btn-reveal');
+  box.textContent = `استعدّوا... ${n}`;
+  EGL.beep('tick');
+  const iv = setInterval(()=>{
+    n--;
+    if(n>0){ box.textContent = `استعدّوا... ${n}`; EGL.beep('tick'); }
+    else {
+      box.textContent = 'الآن! ⚡';
+      EGL.beep('win');
+      clearInterval(iv);
+      setTimeout(openAnswering, 400);
+    }
+  }, 600);
+}
+
+function openAnswering(){
+  if(gameOver) return;
+  document.getElementById('shared-q').style.visibility = 'visible';
+  document.querySelectorAll('.puz-zopts button').forEach(b=>b.disabled=false);
+  roundStart = performance.now();
+  timeLeft = ANSWER_TIME;
+  updateTimerBar();
+  timerInt = setInterval(()=>{
+    timeLeft--; updateTimerBar();
+    if(timeLeft<=0) resolveRound();
+  }, 1000);
+}
+function updateTimerBar(){
+  const fill = document.getElementById('timer-fill');
+  if(fill) fill.style.width = (timeLeft/ANSWER_TIME*100)+'%';
+}
+
+function zoneAnswer(ti, oi){
+  if(zoneAnswered[ti] !== null || gameOver) return;
+  zoneAnswered[ti] = oi;
+  document.getElementById('pzopts-'+ti).querySelectorAll('button').forEach(b=>b.disabled=true);
+  EGL.beep('tick');
+  if(zoneAnswered.every(a => a !== null)) resolveRound();
+}
+
+function resolveRound(){
+  clearInterval(timerInt);
+  if(gameOver) return;
+  const q = questions[qIdx];
+  document.querySelectorAll('.puz-zopts button').forEach(b=>b.disabled=true);
+  teams.forEach((t,ti)=>{
+    const opts = document.getElementById('pzopts-'+ti).querySelectorAll('button');
+    if(!opts.length) return;
+    opts[q.correctIndex].classList.add('correct');
+    const ans = zoneAnswered[ti];
+    if(ans === q.correctIndex){
+      boards[ti].tokens++;
+      const tEl = document.getElementById('ptokens-'+ti);
+      if(tEl) tEl.textContent = `🔓 حركات متاحة: ${boards[ti].tokens}`;
+    } else if(ans !== null){
+      opts[ans].classList.add('wrong');
+    }
+  });
+  EGL.beep(zoneAnswered.some(a=>a===q.correctIndex) ? 'correct' : 'wrong');
+  setTimeout(()=>{ if(gameOver) return; qIdx++; nextQuestion(); }, 2000);
+}
+
+function winGame(ti){
+  gameOver = true;
+  clearInterval(timerInt);
+  EGL.confetti(150); EGL.beep('win');
+  const stage = document.getElementById('stage');
+  const banner = document.createElement('div');
+  banner.className = 'qcard';
+  banner.style.marginTop = '18px';
+  banner.innerHTML = `
+    <div style="font-size:3rem;">🏆</div>
+    <h2>${teams[ti].emoji} ${EGL.escapeHtml(teams[ti].name)} حلّ اللغز أولًا! 🎉</h2>
+    <div style="display:flex; gap:10px; justify-content:center; margin-top:16px;">
+      <button class="btn btn-primary" onclick="location.reload()">🔁 لعب مرة أخرى</button>
+      <a class="btn btn-outline" href="../index.html">🏠 الألعاب الأخرى</a>
+    </div>`;
+  stage.appendChild(banner);
+  document.querySelectorAll('.puz-zopts button').forEach(b=>b.disabled=true);
+  const revealBtn = document.getElementById('btn-reveal');
+  if(revealBtn) revealBtn.disabled = true;
+}
+
+init();
+</script>
+</body>
+</html>
