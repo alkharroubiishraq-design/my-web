@@ -1,0 +1,126 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>بينغو التعارف — ساحة الصف</title>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>🤝</text></svg>">
+<link rel="stylesheet" href="../css/style.css">
+<style>
+  .bingo-boards{ display:grid; gap:16px; grid-template-columns: repeat(auto-fit, minmax(210px, 1fr)); width:100%; max-width:940px; margin: 10px auto; }
+  .bingo-card{ background: var(--surface-2); border-radius:14px; padding:12px; box-shadow: var(--shadow); border:2px solid rgba(255,255,255,.08); }
+  .bingo-card.won{ border-color: var(--success); box-shadow: 0 0 0 3px rgba(43,224,138,.3); }
+  .bingo-name{ text-align:center; font-weight:900; margin-bottom:8px; }
+  .bingo-grid{ display:grid; gap:5px; grid-template-columns: repeat(3, 1fr); }
+  .bingo-cell{ background: var(--surface); border-radius:8px; padding:6px 4px; font-size:.7rem; font-weight:700; text-align:center; min-height:60px; display:flex; align-items:center; justify-content:center; cursor:pointer; }
+  .bingo-cell.marked{ background: rgba(43,224,138,.45); }
+</style>
+</head>
+<body>
+<nav class="topnav"><div class="container">
+  <a class="brand" href="../index.html"><span class="logo">🎲</span> ساحة الصف</a>
+  <div class="navlinks"><a href="../index.html">الرئيسية</a><a href="../index.html#games">الألعاب</a><a href="../questions.html">بنك الأسئلة</a></div>
+</div></nav>
+
+<div class="game-shell">
+  <div class="game-header container">
+    <h1>🤝 بينغو التعارف</h1>
+    <p>لا يحتاج بنك أسئلة! كل لاعب يملك لوحة بصفات — اضغطوا كل صفة تنطبق عليكم وأخبروا زملاءكم، وأول من يكمل خطًا يصرخ "بينغو!"</p>
+  </div>
+  <div class="game-stage container" id="stage"></div>
+</div>
+
+<script src="../js/common.js"></script>
+<script>
+const PROMPTS = [
+  'يحب القراءة 📚', 'عنده حيوان أليف 🐾', 'زار بلدًا آخر ✈️', 'يعزف آلة موسيقية 🎸',
+  'يحب الرياضة ⚽', 'يجيد الطبخ 🍳', 'له أخ توأم 👯', 'يخاف من العناكب 🕷️',
+  'يحب الرسم 🎨', 'ولد في شهر آخر غير هذا الشهر 🎂', 'يتكلم أكثر من لغة 🗣️', 'يحب الأفلام الكرتونية 🎬',
+  'جرّب ركوب الخيل 🐴', 'يحب النجوم والفضاء 🌌', 'عنده أكثر من أخ/أخت 👨‍👩‍👧‍👦', 'يحب الشتاء أكثر من الصيف ❄️',
+  'يحب الرياضيات 🔢', 'يجيد السباحة 🏊', 'يحب الحيوانات البرية 🦁', 'زار متحفًا 🏛️',
+  'يحب الألعاب الإلكترونية 🎮', 'يحب الطبيعة والمشي 🌳', 'كتب قصة قصيرة ✍️', 'يحب اللون الأزرق 🔵',
+];
+let players, boards;
+
+function init(){
+  const stage = document.getElementById('stage');
+  stage.innerHTML = `<div class="empty-state"><div class="emoji">🤝</div><h3>هيّئ اللعبة</h3><p>لا تحتاج بنك أسئلة — فقط أسماء اللاعبين.</p>
+    <button class="btn btn-primary" id="btn-setup">ابدأ الإعداد 🎮</button></div>`;
+  document.getElementById('btn-setup').addEventListener('click', openSetup);
+  openSetup();
+}
+function openSetup(){
+  EGL.openSetupModal({ title:'إعداد بينغو التعارف', allowIndividual:true, allowTeams:false, skipBank:true, minPlayers:2, maxPlayers:8 }, startGame);
+}
+
+function startGame(cfg){
+  players = cfg.players;
+  boards = players.map(()=> EGL.shuffle(PROMPTS).slice(0,9).map(p=>({ text:p, marked:false })));
+  const stage = document.getElementById('stage');
+  stage.innerHTML = `<div class="bingo-boards" id="boards"></div>`;
+  renderBoards();
+}
+
+function renderBoards(){
+  const wrap = document.getElementById('boards');
+  wrap.innerHTML = players.map((p,pi)=>`
+    <div class="bingo-card" id="card-${pi}">
+      <div class="bingo-name">${p.emoji} ${EGL.escapeHtml(p.name)}</div>
+      <div class="bingo-grid">
+        ${boards[pi].map((c,ci)=>`<div class="bingo-cell ${c.marked?'marked':''}" data-p="${pi}" data-c="${ci}">${EGL.escapeHtml(c.text)}</div>`).join('')}
+      </div>
+      <div style="text-align:center; margin-top:8px;"><button class="btn btn-accent btn-sm" data-claim="${pi}">🎉 بينغو!</button></div>
+    </div>`).join('');
+  wrap.querySelectorAll('.bingo-cell').forEach(cell=>{
+    cell.addEventListener('click', ()=>toggleCell(parseInt(cell.dataset.p), parseInt(cell.dataset.c)));
+  });
+  wrap.querySelectorAll('[data-claim]').forEach(btn=>{
+    btn.addEventListener('click', ()=>claimBingo(parseInt(btn.dataset.claim)));
+  });
+}
+
+function toggleCell(pi, ci){
+  boards[pi][ci].marked = !boards[pi][ci].marked;
+  EGL.beep('tick');
+  renderBoards();
+}
+
+function hasLine(board){
+  const G = 3;
+  for(let r=0;r<G;r++) if(board.slice(r*G, r*G+G).every(c=>c.marked)) return true;
+  for(let c=0;c<G;c++){ let all=true; for(let r=0;r<G;r++) if(!board[r*G+c].marked) all=false; if(all) return true; }
+  let d1=true, d2=true;
+  for(let i=0;i<G;i++){ if(!board[i*G+i].marked) d1=false; if(!board[i*G+(G-1-i)].marked) d2=false; }
+  return d1 || d2;
+}
+
+function claimBingo(pi){
+  if(hasLine(boards[pi])){
+    winGame(pi);
+  } else {
+    EGL.beep('wrong');
+    EGL.toast('لا يوجد خط مكتمل بعد! 🤔');
+  }
+}
+
+function winGame(pi){
+  EGL.confetti(140); EGL.beep('win');
+  document.getElementById('card-'+pi).classList.add('won');
+  const stage = document.getElementById('stage');
+  const banner = document.createElement('div');
+  banner.className = 'qcard';
+  banner.style.marginTop = '18px';
+  banner.innerHTML = `
+    <div style="font-size:3rem;">🏆</div>
+    <h2>${players[pi].emoji} ${EGL.escapeHtml(players[pi].name)} صرخ "بينغو!" أولًا 🎉</h2>
+    <div style="display:flex; gap:10px; justify-content:center; margin-top:16px;">
+      <button class="btn btn-primary" onclick="location.reload()">🔁 لعب مرة أخرى</button>
+      <a class="btn btn-outline" href="../index.html">🏠 الألعاب الأخرى</a>
+    </div>`;
+  stage.appendChild(banner);
+}
+
+init();
+</script>
+</body>
+</html>

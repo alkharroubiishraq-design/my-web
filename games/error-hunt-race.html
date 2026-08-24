@@ -48,7 +48,8 @@ function normalize(s){ return (s||'').trim().toLowerCase().replace(/[،.,؟!؛:]
 
 function startGame(cfg){
   const bank = EGL.getBank(cfg.bankId);
-  pool = EGL.shuffle(bank.questions.filter(q => q.type==='open' && q.context && q.context.trim() && q.answerText && q.answerText.trim()));
+  pool = EGL.shuffle(bank.questions.filter(q => q.type==='open' && q.context && q.context.trim() && q.answerText
+    && q.answerText.trim().split(/\s+/).length <= 3 && q.context.includes(q.answerText.trim())));
   if(!pool.length){ EGL.toast('لا توجد أسئلة فقرة+خطأ مناسبة في هذا البنك'); return; }
   poolIdx = 0;
   players = cfg.players;

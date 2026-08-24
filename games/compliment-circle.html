@@ -1,0 +1,118 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>دائرة المجاملات — ساحة الصف</title>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>💛</text></svg>">
+<link rel="stylesheet" href="../css/style.css">
+<style>
+  .recipient-card{ text-align:center; padding: 20px; }
+  .recipient-emoji{ font-size:3.4rem; }
+  .compliment-palette{ display:flex; flex-wrap:wrap; gap:8px; justify-content:center; margin: 14px 0; max-width:640px; margin-inline:auto; }
+  .compliment-chip{ background: var(--surface-2); border-radius:20px; padding:9px 16px; cursor:pointer; border:none; font-family:inherit; font-weight:700; font-size:.82rem; color:#fff; }
+  .compliment-chip:hover{ background: var(--primary); }
+  .wall-note{ background: rgba(255,210,63,.18); border-radius:10px; padding:6px 10px; font-size:.78rem; font-weight:700; margin:3px; display:inline-block; }
+</style>
+</head>
+<body>
+<nav class="topnav"><div class="container">
+  <a class="brand" href="../index.html"><span class="logo">🎲</span> ساحة الصف</a>
+  <div class="navlinks"><a href="../index.html">الرئيسية</a><a href="../index.html#games">الألعاب</a><a href="../questions.html">بنك الأسئلة</a></div>
+</div></nav>
+
+<div class="game-shell">
+  <div class="game-header container">
+    <h1>💛 دائرة المجاملات</h1>
+    <p>لا يحتاج بنك أسئلة! كل طالب يحصل على دوره ليستقبل كلمات لطيفة من زملائه — جولة كاملة من الطاقة الإيجابية!</p>
+  </div>
+  <div class="game-stage container" id="stage"></div>
+</div>
+
+<script src="../js/common.js"></script>
+<script>
+const COMPLIMENTS = [
+  'ذكي جدًا! 🧠', 'مبدع! 🎨', 'صديق رائع! 🤝', 'مضحك جدًا! 😂', 'مجتهد! 💪',
+  'كريم القلب! 💛', 'شجاع! 🦁', 'مبتسم دائمًا! 😊', 'موهوب! ⭐', 'متعاون! 🙌',
+  'صبور! 🕊️', 'قائد رائع! 👑', 'مستمع جيد! 👂', 'مصدر إلهام! ✨', 'لطيف جدًا! 🌸',
+];
+let players, walls, recipientIdx, roundsDone;
+
+function init(){
+  const stage = document.getElementById('stage');
+  stage.innerHTML = `<div class="empty-state"><div class="emoji">💛</div><h3>هيّئ اللعبة</h3><p>لا تحتاج بنك أسئلة — فقط أسماء الطلاب المشاركين.</p>
+    <button class="btn btn-primary" id="btn-setup">ابدأ الإعداد 🎮</button></div>`;
+  document.getElementById('btn-setup').addEventListener('click', openSetup);
+  openSetup();
+}
+function openSetup(){
+  EGL.openSetupModal({ title:'إعداد دائرة المجاملات', allowIndividual:true, allowTeams:false, skipBank:true, minPlayers:2, maxPlayers:10 }, startGame);
+}
+
+function startGame(cfg){
+  players = cfg.players;
+  walls = players.map(()=>[]);
+  recipientIdx = 0;
+  roundsDone = 0;
+  const stage = document.getElementById('stage');
+  stage.innerHTML = `<div id="round-area"></div>`;
+  renderRecipient();
+}
+
+function renderRecipient(){
+  const area = document.getElementById('round-area');
+  const p = players[recipientIdx];
+  area.innerHTML = `
+    <div class="qcard recipient-card">
+      <div class="recipient-emoji">${p.emoji}</div>
+      <h2>الدور على ${EGL.escapeHtml(p.name)}!</h2>
+      <p class="hint">اضغطوا مجاملة لطيفة لإهدائها له/لها:</p>
+      <div class="compliment-palette" id="palette">${EGL.shuffle(COMPLIMENTS).slice(0,8).map(c=>`<button class="compliment-chip" data-c="${EGL.escapeHtml(c)}">${EGL.escapeHtml(c)}</button>`).join('')}</div>
+      <div id="wall-preview"></div>
+      <div style="margin-top:14px;"><button class="btn btn-gold" id="btn-next">➡️ التالي</button></div>
+    </div>`;
+  document.querySelectorAll('.compliment-chip').forEach(btn=>btn.addEventListener('click', ()=>giveCompliment(btn.dataset.c)));
+  document.getElementById('btn-next').addEventListener('click', nextRecipient);
+  updateWallPreview();
+}
+
+function giveCompliment(c){
+  walls[recipientIdx].push(c);
+  EGL.beep('tick'); EGL.confetti(15);
+  updateWallPreview();
+}
+
+function updateWallPreview(){
+  const el = document.getElementById('wall-preview');
+  if(el) el.innerHTML = walls[recipientIdx].map(c=>`<span class="wall-note">${EGL.escapeHtml(c)}</span>`).join(' ');
+}
+
+function nextRecipient(){
+  roundsDone++;
+  recipientIdx = (recipientIdx+1) % players.length;
+  if(roundsDone >= players.length){ return showWalls(); }
+  renderRecipient();
+}
+
+function showWalls(){
+  EGL.confetti(150); EGL.beep('win');
+  const stage = document.getElementById('stage');
+  stage.innerHTML = `<div class="qcard">
+    <div style="font-size:3rem;">💛</div>
+    <h2>جدار المجاملات النهائي!</h2>
+    ${players.map((p,i)=>`
+      <div style="margin:14px 0; text-align:right;">
+        <strong>${p.emoji} ${EGL.escapeHtml(p.name)}:</strong><br>
+        ${walls[i].length ? walls[i].map(c=>`<span class="wall-note">${EGL.escapeHtml(c)}</span>`).join(' ') : '<span class="hint">لم يستلم مجاملات بعد</span>'}
+      </div>`).join('')}
+    <div style="display:flex; gap:10px; justify-content:center; margin-top:16px;">
+      <button class="btn btn-primary" onclick="location.reload()">🔁 دائرة جديدة</button>
+      <a class="btn btn-outline" href="../index.html">🏠 الألعاب الأخرى</a>
+    </div>
+  </div>`;
+}
+
+init();
+</script>
+</body>
+</html>
