@@ -1,0 +1,215 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>لوحة التحليلات — ساحة الصف</title>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>📊</text></svg>">
+<link rel="stylesheet" href="../css/style.css">
+<style>
+  .analytics-layout{ display:grid; grid-template-columns: 320px 1fr; gap:18px; align-items:start; }
+  @media (max-width: 860px){ .analytics-layout{ grid-template-columns: 1fr; } }
+  .session-list{ display:flex; flex-direction:column; gap:8px; max-height:70vh; overflow-y:auto; }
+  .session-row{ background: var(--surface-2); border-radius:12px; padding:10px 12px; cursor:pointer; border:2px solid transparent; position:relative; }
+  .session-row:hover{ border-color: var(--primary); }
+  .session-row.active{ border-color: var(--accent-2); }
+  .session-row .srow-title{ font-weight:800; font-size:.9rem; }
+  .session-row .srow-meta{ font-size:.72rem; color: var(--text-dim); margin-top:3px; }
+  .session-row .srow-del{ position:absolute; left:8px; top:8px; background:none; border:none; color: var(--text-dim); cursor:pointer; font-size:.9rem; }
+  .session-row .srow-del:hover{ color: var(--danger); }
+  .bar-row{ display:flex; align-items:center; gap:8px; margin-bottom:10px; }
+  .bar-label{ flex:0 0 150px; font-weight:800; font-size:.85rem; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .bar-track{ flex:1; background: var(--surface); border-radius:8px; overflow:hidden; height:22px; }
+  .bar-fill{ height:100%; background: var(--primary); transition: width .5s ease; }
+  .bar-fill.danger{ background: var(--danger); }
+  .bar-fill.warn{ background: var(--accent-2); }
+  .bar-fill.good{ background: var(--success); }
+  .bar-count{ flex:0 0 54px; font-weight:800; font-size:.78rem; text-align:left; }
+  .qrow{ background: var(--surface-2); border-radius:12px; padding:10px 14px; margin-bottom:10px; }
+  .qrow .qrow-text{ font-weight:800; margin-bottom:6px; }
+  .empty-note{ text-align:center; color: var(--text-dim); padding: 30px 10px; }
+  .toolbar{ display:flex; gap:8px; justify-content:flex-end; margin-bottom:10px; flex-wrap:wrap; }
+  .privacy-note{ font-size:.78rem; color: var(--text-dim); text-align:center; margin-top:6px; }
+  @media print{ .topnav, .toolbar, .session-list, .analytics-layout{ display:block !important; } .no-print{ display:none !important; } }
+</style>
+</head>
+<body>
+<nav class="topnav no-print"><div class="container">
+  <a class="brand" href="../index.html"><span class="logo">🎲</span> ساحة الصف</a>
+  <div class="navlinks"><a href="../index.html">الرئيسية</a><a href="../index.html#games">الألعاب</a><a href="../questions.html">بنك الأسئلة</a></div>
+</div></nav>
+
+<div class="game-shell">
+  <div class="game-header container">
+    <h1>📊 لوحة التحليلات</h1>
+    <p>نتائج جلسات اللعب المباشر (📡) — من الأسئلة الأصعب، ومن تصدّر الترتيب، عبر كل الجلسات التي استضفتها من هذا الجهاز.</p>
+    <p class="privacy-note">🔒 كل البيانات محفوظة محليًا داخل متصفحك على هذا الجهاز فقط — لا تُرسل لأي خادم، ولا تظهر على أجهزة أخرى.</p>
+  </div>
+  <div class="game-stage container" id="stage"></div>
+</div>
+
+<script src="../js/common.js"></script>
+<script>
+let sessions, activeId;
+
+function init(){
+  sessions = EGL.getLiveSessions().slice().reverse(); // newest first
+  const stage = document.getElementById('stage');
+  if(!sessions.length){
+    stage.innerHTML = `<div class="empty-note">
+      <div style="font-size:3rem;">📊</div>
+      <h3>لا توجد جلسات مسجّلة بعد</h3>
+      <p>استضف جلسة "اللعب المباشر 📡" من الصفحة الرئيسية، وأكملها حتى النهاية — ستظهر نتائجها هنا تلقائيًا.</p>
+      <a class="btn btn-primary" href="live-host.html">📡 ابدأ جلسة لعب مباشر</a>
+    </div>`;
+    return;
+  }
+  stage.innerHTML = `
+    <div class="toolbar no-print">
+      <button class="btn btn-outline btn-sm" id="btn-overview">📈 نظرة عامة على كل الجلسات</button>
+      <button class="btn btn-outline btn-sm" id="btn-print">🖨️ طباعة / حفظ PDF</button>
+      <button class="btn btn-outline btn-sm" id="btn-clear">🗑️ مسح كل السجل</button>
+    </div>
+    <div class="analytics-layout">
+      <div class="session-list" id="session-list"></div>
+      <div id="detail-area"></div>
+    </div>`;
+  document.getElementById('btn-overview').addEventListener('click', renderOverview);
+  document.getElementById('btn-print').addEventListener('click', ()=>window.print());
+  document.getElementById('btn-clear').addEventListener('click', clearAll);
+  renderSessionList();
+  renderSession(sessions[0].id);
+}
+
+function renderSessionList(){
+  const list = document.getElementById('session-list');
+  list.innerHTML = sessions.map(s=>{
+    const date = new Date(s.endedAt || s.recordedAt).toLocaleString('ar-EG', { dateStyle:'short', timeStyle:'short' });
+    const avgAcc = sessionAccuracy(s);
+    return `<div class="session-row ${s.id===activeId?'active':''}" data-id="${s.id}">
+      <button class="srow-del no-print" data-del="${s.id}" title="حذف">🗑️</button>
+      <div class="srow-title">📡 ${EGL.escapeHtml(s.bankName || 'بنك غير معروف')}</div>
+      <div class="srow-meta">${date} — ${s.players.length} لاعب — دقة ${avgAcc}%</div>
+    </div>`;
+  }).join('');
+  list.querySelectorAll('.session-row').forEach(el=>{
+    el.addEventListener('click', (e)=>{ if(e.target.dataset.del) return; renderSession(el.dataset.id); });
+  });
+  list.querySelectorAll('[data-del]').forEach(btn=>{
+    btn.addEventListener('click', (e)=>{ e.stopPropagation(); deleteSession(btn.dataset.del); });
+  });
+}
+
+function sessionAccuracy(s){
+  if(!s.questions || !s.questions.length) return 0;
+  const totalAnswered = s.questions.reduce((a,q)=>a+q.totalAnswered, 0);
+  const totalCorrect = s.questions.reduce((a,q)=>a+q.totalCorrect, 0);
+  return totalAnswered ? Math.round(totalCorrect/totalAnswered*100) : 0;
+}
+
+function accClass(pct){
+  if(pct < 50) return 'danger';
+  if(pct < 75) return 'warn';
+  return 'good';
+}
+
+function renderSession(id){
+  activeId = id;
+  renderSessionList();
+  const s = sessions.find(x=>x.id===id);
+  const area = document.getElementById('detail-area');
+  if(!s){ area.innerHTML = ''; return; }
+  const date = new Date(s.endedAt || s.recordedAt).toLocaleString('ar-EG', { dateStyle:'medium', timeStyle:'short' });
+  const maxScore = Math.max(1, ...s.players.map(p=>p.score));
+  const sortedQs = (s.questions||[]).slice().sort((a,b)=>{
+    const accA = a.totalAnswered ? a.totalCorrect/a.totalAnswered : 1;
+    const accB = b.totalAnswered ? b.totalCorrect/b.totalAnswered : 1;
+    return accA - accB;
+  });
+  area.innerHTML = `
+    <div class="qcard">
+      <h3 style="margin-top:0;">📡 ${EGL.escapeHtml(s.bankName || '')} — ${date}</h3>
+      <p class="hint">كود الغرفة: ${EGL.escapeHtml(s.code||'—')} — ${s.totalQuestions} سؤال — دقة الإجابات الإجمالية: ${sessionAccuracy(s)}%</p>
+
+      <h4>🏆 ترتيب اللاعبين</h4>
+      ${s.players.length ? s.players.map(p=>`
+        <div class="bar-row">
+          <div class="bar-label">${p.emoji||'🎓'} ${EGL.escapeHtml(p.name)}</div>
+          <div class="bar-track"><div class="bar-fill" style="width:${p.score*100/maxScore}%"></div></div>
+          <div class="bar-count">${p.score}</div>
+        </div>`).join('') : '<p class="hint">لم ينضم أحد لهذه الجلسة</p>'}
+
+      <h4 style="margin-top:20px;">🎯 دقة الإجابة لكل سؤال (الأصعب أولًا)</h4>
+      ${sortedQs.length ? sortedQs.map(q=>{
+        const pct = q.totalAnswered ? Math.round(q.totalCorrect/q.totalAnswered*100) : 0;
+        return `<div class="qrow">
+          <div class="qrow-text">${EGL.escapeHtml(q.text)} ${q.category?`<span class="badge">${EGL.escapeHtml(q.category)}</span>`:''} ${q.difficulty?`<span class="badge">${EGL.diffLabel(q.difficulty)}</span>`:''}</div>
+          <div class="bar-row" style="margin-bottom:2px;">
+            <div class="bar-label">${q.totalCorrect}/${q.totalAnswered} صحيح</div>
+            <div class="bar-track"><div class="bar-fill ${accClass(pct)}" style="width:${pct}%"></div></div>
+            <div class="bar-count">${pct}%</div>
+          </div>
+          <p class="hint" style="margin:4px 0 0;">✅ الإجابة الصحيحة: ${EGL.escapeHtml(q.correctText||'')}</p>
+        </div>`;
+      }).join('') : '<p class="hint">لا تتوفر بيانات أسئلة لهذه الجلسة</p>'}
+    </div>`;
+}
+
+function deleteSession(id){
+  EGL.deleteLiveSession(id);
+  sessions = sessions.filter(s=>s.id!==id);
+  if(!sessions.length){ init(); return; }
+  if(activeId===id) activeId = sessions[0].id;
+  renderSessionList();
+  renderSession(activeId);
+  EGL.toast('تم حذف الجلسة');
+}
+
+function clearAll(){
+  if(!confirm('هل تريد مسح كل سجل الجلسات نهائيًا؟ لا يمكن التراجع.')) return;
+  EGL.clearLiveSessions();
+  init();
+}
+
+function renderOverview(){
+  const qMap = {};
+  sessions.forEach(s=>{
+    (s.questions||[]).forEach(q=>{
+      const key = q.text;
+      if(!qMap[key]) qMap[key] = { text:q.text, category:q.category, difficulty:q.difficulty, totalAnswered:0, totalCorrect:0, timesUsed:0 };
+      qMap[key].totalAnswered += q.totalAnswered;
+      qMap[key].totalCorrect += q.totalCorrect;
+      qMap[key].timesUsed++;
+    });
+  });
+  const allQs = Object.values(qMap).filter(q=>q.totalAnswered>0)
+    .sort((a,b)=> (a.totalCorrect/a.totalAnswered) - (b.totalCorrect/b.totalAnswered))
+    .slice(0, 15);
+  const totalSessions = sessions.length;
+  const totalPlayers = new Set();
+  sessions.forEach(s=>s.players.forEach(p=>totalPlayers.add(p.name)));
+  const area = document.getElementById('detail-area');
+  area.innerHTML = `
+    <div class="qcard">
+      <h3 style="margin-top:0;">📈 نظرة عامة على كل الجلسات</h3>
+      <p class="hint">إجمالي الجلسات: ${totalSessions} — إجمالي أسماء اللاعبين المميزة: ${totalPlayers.size}</p>
+      <h4>😓 الأسئلة الأكثر صعوبة (عبر كل الجلسات)</h4>
+      ${allQs.length ? allQs.map(q=>{
+        const pct = Math.round(q.totalCorrect/q.totalAnswered*100);
+        return `<div class="qrow">
+          <div class="qrow-text">${EGL.escapeHtml(q.text)} ${q.category?`<span class="badge">${EGL.escapeHtml(q.category)}</span>`:''}</div>
+          <div class="bar-row" style="margin-bottom:2px;">
+            <div class="bar-label">استُخدم ${q.timesUsed} مرة</div>
+            <div class="bar-track"><div class="bar-fill ${accClass(pct)}" style="width:${pct}%"></div></div>
+            <div class="bar-count">${pct}%</div>
+          </div>
+        </div>`;
+      }).join('') : '<p class="hint">لا تتوفر بيانات كافية بعد</p>'}
+    </div>`;
+  document.querySelectorAll('.session-row').forEach(el=>el.classList.remove('active'));
+}
+
+init();
+</script>
+</body>
+</html>

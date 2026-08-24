@@ -463,13 +463,35 @@ const EGL = (() => {
     return Array.from(decoys);
   }
 
+  /* ---------------- Analytics: local session history (اللعب المباشر) ---------------- */
+  const LIVE_SESSIONS_KEY = 'egl_live_sessions_v1';
+  const MAX_SESSIONS = 200;
+
+  function recordLiveSession(session) {
+    let list = getLiveSessions();
+    list.push({ id: uuid(), recordedAt: Date.now(), ...session });
+    if (list.length > MAX_SESSIONS) list = list.slice(list.length - MAX_SESSIONS);
+    try { localStorage.setItem(LIVE_SESSIONS_KEY, JSON.stringify(list)); } catch (e) { /* storage full — silently skip */ }
+  }
+  function getLiveSessions() {
+    try { return JSON.parse(localStorage.getItem(LIVE_SESSIONS_KEY)) || []; } catch (e) { return []; }
+  }
+  function deleteLiveSession(id) {
+    const list = getLiveSessions().filter(s => s.id !== id);
+    try { localStorage.setItem(LIVE_SESSIONS_KEY, JSON.stringify(list)); } catch (e) {}
+  }
+  function clearLiveSessions() {
+    try { localStorage.removeItem(LIVE_SESSIONS_KEY); } catch (e) {}
+  }
+
   return {
     uuid, shuffle, pick, qs, pointsFor, diffLabel, typeLabel,
     getBanks, saveBanks, getBank, addBank, updateBank, deleteBank, addQuestions, deleteQuestion,
     getApiKey, setApiKey, getModel, setModel,
     seedIfEmpty, mkMcq, mkTf, mkOpen, mkSequence,
     toast, beep, confetti, Scoreboard, escapeHtml, openSetupModal,
-    genMathProblem, genMathStatement, scrambleWord, spellingDecoys, splitSentences
+    genMathProblem, genMathStatement, scrambleWord, spellingDecoys, splitSentences,
+    recordLiveSession, getLiveSessions, deleteLiveSession, clearLiveSessions
   };
 })();
 

@@ -44,6 +44,11 @@
 <script>
 const HOST_STATE_KEY = 'egl_live_host_state_v1';
 let code, hostQuestions, latestRoom = null, unsubscribe = null, questionTimerInt, finishedThisRound;
+let questionLog = [], gameStartedAt = null, bankNameForLog = '', sessionRecorded = false;
+
+function saveHostState(){
+  try{ sessionStorage.setItem(HOST_STATE_KEY, JSON.stringify({ code, questions: hostQuestions, questionLog, gameStartedAt, bankNameForLog })); }catch(e){}
+}
 
 async function init(){
   EGL.seedIfEmpty();
@@ -63,6 +68,9 @@ async function init(){
       if(room && room.phase !== 'ended'){
         code = parsed.code;
         hostQuestions = parsed.questions;
+        questionLog = parsed.questionLog || [];
+        gameStartedAt = parsed.gameStartedAt || Date.now();
+        bankNameForLog = parsed.bankNameForLog || '';
         subscribeRoom();
         return;
       }
@@ -104,7 +112,11 @@ async function createRoom(){
       phase: 'lobby', bankName: bank.name, totalQuestions: hostQuestions.length,
       currentIndex: -1, currentQuestion: null, players: {}, answers: {}, questionStartedAt: null
     });
-    sessionStorage.setItem(HOST_STATE_KEY, JSON.stringify({ code, questions: hostQuestions }));
+    questionLog = [];
+    gameStartedAt = Date.now();
+    bankNameForLog = bank.name;
+    sessionRecorded = false;
+    saveHostState();
     subscribeRoom();
   }catch(e){
     console.error(e);
@@ -215,6 +227,15 @@ async function finishQuestion(){
       patch['players.'+pid+'.score'] = curScore + (q.points||10) + bonus;
     }
   });
+  const totalPlayers = Object.keys(players).length;
+  const totalAnswered = Object.keys(answers).length;
+  const totalCorrect = Object.values(answers).filter(a=>a && a.optionIndex===q.correctIndex).length;
+  questionLog.push({
+    index: room.currentIndex, text: q.text, category: q.category||'', difficulty: q.difficulty||'',
+    correctText: q.answerText || q.options[q.correctIndex],
+    totalPlayers, totalAnswered, totalCorrect
+  });
+  saveHostState();
   try{ await EGLLive.updateRoom(code, patch); }
   catch(e){ console.error(e); EGL.toast('⚠️ خطأ أثناء تسجيل النتائج'); }
 }
@@ -253,16 +274,26 @@ function renderReveal(room){
 
 function renderEnded(room){
   EGL.confetti(150); EGL.beep('win');
-  sessionStorage.removeItem(HOST_STATE_KEY);
   const ranking = Object.values(room.players||{}).sort((a,b)=>(b.score||0)-(a.score||0));
+  if(!sessionRecorded){
+    sessionRecorded = true;
+    EGL.recordLiveSession({
+      code, bankName: bankNameForLog || room.bankName || '', startedAt: gameStartedAt || Date.now(), endedAt: Date.now(),
+      totalQuestions: room.totalQuestions,
+      players: ranking.map(p=>({ name:p.name, emoji:p.emoji||'🎓', score:p.score||0 })),
+      questions: questionLog
+    });
+  }
+  sessionStorage.removeItem(HOST_STATE_KEY);
   const stage = document.getElementById('stage');
   stage.innerHTML = `<div class="qcard">
     <div style="font-size:3rem; text-align:center;">🏆</div><h2 style="text-align:center;">انتهت اللعبة!</h2>
     <div class="scoreboard" style="justify-content:center;">
       ${ranking.map((p,r)=>`<div class="player-chip ${r===0?'active':''}"><div>${r===0?'🥇':r===1?'🥈':r===2?'🥉':p.emoji}</div><div class="pname">${EGL.escapeHtml(p.name)}</div><div class="pscore">${p.score||0}</div></div>`).join('') || '<p class="hint">لم ينضم أحد بعد</p>'}
     </div>
-    <div style="display:flex; gap:10px; justify-content:center; margin-top:16px;">
+    <div style="display:flex; gap:10px; justify-content:center; margin-top:16px; flex-wrap:wrap;">
       <button class="btn btn-primary" onclick="location.reload()">🔁 غرفة جديدة</button>
+      <a class="btn btn-gold" href="analytics.html">📊 عرض التحليلات</a>
       <a class="btn btn-outline" href="../index.html">🏠 الألعاب الأخرى</a>
     </div>
   </div>`;
