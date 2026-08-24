@@ -1,0 +1,114 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>دورية علامات الترقيم — ساحة الصف</title>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>❗</text></svg>">
+<link rel="stylesheet" href="../css/style.css">
+<style>
+  .punct-options{ display:flex; gap:14px; justify-content:center; flex-wrap:wrap; margin-top:16px; }
+  .punct-btn{ font-size:2rem; font-weight:900; width:64px; height:64px; border-radius:14px; background: var(--surface-2); border:3px solid transparent; cursor:pointer; display:flex; align-items:center; justify-content:center; }
+  .punct-btn:hover{ border-color: var(--primary); }
+  .punct-btn.correct{ background: rgba(43,224,138,.4); border-color: var(--success); }
+  .punct-btn.wrong{ background: rgba(255,92,92,.4); border-color: var(--danger); }
+</style>
+</head>
+<body>
+<nav class="topnav"><div class="container">
+  <a class="brand" href="../index.html"><span class="logo">🎲</span> ساحة الصف</a>
+  <div class="navlinks"><a href="../index.html">الرئيسية</a><a href="../index.html#games">الألعاب</a><a href="../questions.html">بنك الأسئلة</a></div>
+</div></nav>
+
+<div class="game-shell">
+  <div class="game-header container">
+    <h1>❗ دورية علامات الترقيم</h1>
+    <p>اختاروا علامة الترقيم الصحيحة لإكمال الجملة بشكل سليم!</p>
+  </div>
+  <div class="game-stage container" id="stage"></div>
+</div>
+
+<script src="../js/common.js"></script>
+<script>
+let sb, players, activeI, pool, poolIdx, round, ROUNDS;
+
+function init(){
+  const stage = document.getElementById('stage');
+  stage.innerHTML = `<div class="empty-state"><div class="emoji">❗</div><h3>هيّئ اللعبة</h3><p>تحتاج بنك أسئلة اختيار من متعدد، خياراتها علامات ترقيم (، . ؟ ! :) لجملة ناقصة.</p>
+    <button class="btn btn-primary" id="btn-setup">ابدأ الإعداد 🎮</button></div>`;
+  document.getElementById('btn-setup').addEventListener('click', openSetup);
+  openSetup();
+}
+function openSetup(){
+  EGL.openSetupModal({ title:'إعداد دورية علامات الترقيم', allowIndividual:true, allowTeams:true, needQuestions:true, qType:['mcq'] }, startGame);
+}
+
+function startGame(cfg){
+  const bank = EGL.getBank(cfg.bankId);
+  pool = EGL.shuffle(bank.questions.filter(q=>q.type==='mcq'));
+  if(!pool.length){ EGL.toast('لا توجد أسئلة اختيار من متعدد في هذا البنك — أضِف جملًا ناقصة وخياراتها علامات ترقيم.'); return; }
+  poolIdx = 0;
+  players = cfg.players;
+  activeI = 0;
+  round = 0;
+  ROUNDS = Math.min(10, pool.length);
+  const stage = document.getElementById('stage');
+  stage.innerHTML = `<div id="sb-wrap" class="scoreboard"></div><div id="round-badge" class="badge" style="display:block; text-align:center; margin:8px 0;"></div><div id="game-area"></div>`;
+  sb = new EGL.Scoreboard(document.getElementById('sb-wrap'), players);
+  nextRound();
+}
+
+function nextRound(){
+  round++;
+  if(round > ROUNDS || poolIdx >= pool.length){ return showResults(); }
+  document.getElementById('round-badge').textContent = `❗ الجولة ${round} / ${ROUNDS}`;
+  renderRound();
+}
+
+function renderRound(){
+  const q = pool[poolIdx++];
+  sb.setActive(activeI);
+  const area = document.getElementById('game-area');
+  area.innerHTML = `
+    <div class="qcard">
+      <div class="qmeta"><span class="badge">دور: ${EGL.escapeHtml(players[activeI].name)}</span></div>
+      <div class="qtext">${EGL.escapeHtml(q.text)}</div>
+      <div class="punct-options" id="opts">${q.options.map((o,i)=>`<button class="punct-btn" data-i="${i}">${EGL.escapeHtml(o)}</button>`).join('')}</div>
+    </div>`;
+  area.querySelectorAll('.punct-btn').forEach(btn=>btn.addEventListener('click', ()=>answer(parseInt(btn.dataset.i), q)));
+}
+
+function answer(i, q){
+  const opts = document.querySelectorAll('.punct-btn');
+  opts.forEach(b=>b.disabled=true);
+  opts[i].classList.add(i===q.correctIndex?'correct':'wrong');
+  opts[q.correctIndex].classList.add('correct');
+  if(i === q.correctIndex){
+    sb.addScore(activeI, q.points || 10);
+    EGL.beep('correct'); EGL.confetti(30);
+  } else {
+    EGL.beep('wrong');
+  }
+  setTimeout(()=>{ activeI = (activeI+1) % players.length; nextRound(); }, 1600);
+}
+
+function showResults(){
+  EGL.confetti(100); EGL.beep('win');
+  const ranking = sb.ranking();
+  const stage = document.getElementById('stage');
+  stage.innerHTML = `<div class="qcard">
+    <div style="font-size:3rem;">🏆</div><h2>انتهت الجولات!</h2>
+    <div class="scoreboard" style="justify-content:center;">
+      ${ranking.map((p,r)=>`<div class="player-chip ${r===0?'active':''}"><div style="font-size:1.4rem;">${r===0?'🥇':r===1?'🥈':r===2?'🥉':p.emoji}</div><div class="pname">${EGL.escapeHtml(p.name)}</div><div class="pscore">${p.score}</div></div>`).join('')}
+    </div>
+    <div style="display:flex; gap:10px; justify-content:center; margin-top:16px;">
+      <button class="btn btn-primary" onclick="location.reload()">🔁 لعب مرة أخرى</button>
+      <a class="btn btn-outline" href="../index.html">🏠 الألعاب الأخرى</a>
+    </div>
+  </div>`;
+}
+
+init();
+</script>
+</body>
+</html>

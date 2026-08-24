@@ -1,0 +1,138 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>سباق اصطياد الأخطاء — ساحة الصف</title>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>🕵️‍♂️</text></svg>">
+<link rel="stylesheet" href="../css/style.css">
+<style>
+  .error-paragraph{ font-size:1.25rem; line-height:2.4; text-align:center; max-width:640px; margin: 16px auto; }
+  .word-token{ display:inline-block; padding:2px 4px; margin:2px; cursor:pointer; border-radius:6px; transition:.15s; }
+  .word-token:hover{ background: rgba(255,255,255,.08); }
+  .word-token.wrong-flash{ background: rgba(255,92,92,.4); }
+  .word-token.found{ background: rgba(43,224,138,.4); text-decoration: underline; }
+</style>
+</head>
+<body>
+<nav class="topnav"><div class="container">
+  <a class="brand" href="../index.html"><span class="logo">🎲</span> ساحة الصف</a>
+  <div class="navlinks"><a href="../index.html">الرئيسية</a><a href="../index.html#games">الألعاب</a><a href="../questions.html">بنك الأسئلة</a></div>
+</div></nav>
+
+<div class="game-shell">
+  <div class="game-header container">
+    <h1>🕵️‍♂️ سباق اصطياد الأخطاء</h1>
+    <p>اقرؤوا الفقرة بسرعة وانقروا على الكلمة التي فيها الخطأ النحوي قبل نفاد الوقت!</p>
+  </div>
+  <div class="game-stage container" id="stage"></div>
+</div>
+
+<script src="../js/common.js"></script>
+<script>
+const ROUND_TIME = 20;
+let sb, players, activeI, pool, poolIdx, round, ROUNDS, timerInt, timeLeft, curQ;
+
+function init(){
+  const stage = document.getElementById('stage');
+  stage.innerHTML = `<div class="empty-state"><div class="emoji">🕵️‍♂️</div><h3>هيّئ اللعبة</h3><p>تحتاج بنك أسئلة مفتوحة فيها فقرة (نص مرجعي) تحوي خطأ نحويًا واحدًا، والإجابة النصية هي الكلمة الخاطئة بالضبط.</p>
+    <button class="btn btn-primary" id="btn-setup">ابدأ الإعداد 🎮</button></div>`;
+  document.getElementById('btn-setup').addEventListener('click', openSetup);
+  openSetup();
+}
+function openSetup(){
+  EGL.openSetupModal({ title:'إعداد سباق اصطياد الأخطاء', allowIndividual:true, allowTeams:true, needQuestions:true, qType:['open'] }, startGame);
+}
+
+function normalize(s){ return (s||'').trim().toLowerCase().replace(/[،.,؟!؛:]/g,'').replace(/[إأآا]/g,'ا').replace(/ة/g,'ه'); }
+
+function startGame(cfg){
+  const bank = EGL.getBank(cfg.bankId);
+  pool = EGL.shuffle(bank.questions.filter(q => q.type==='open' && q.context && q.context.trim() && q.answerText && q.answerText.trim()));
+  if(!pool.length){ EGL.toast('لا توجد أسئلة فقرة+خطأ مناسبة في هذا البنك'); return; }
+  poolIdx = 0;
+  players = cfg.players;
+  activeI = 0;
+  round = 0;
+  ROUNDS = Math.min(8, pool.length);
+  const stage = document.getElementById('stage');
+  stage.innerHTML = `<div id="sb-wrap" class="scoreboard"></div><div id="round-badge" class="badge" style="display:block; text-align:center; margin:8px 0;"></div><div id="game-area"></div>`;
+  sb = new EGL.Scoreboard(document.getElementById('sb-wrap'), players);
+  nextRound();
+}
+
+function nextRound(){
+  clearInterval(timerInt);
+  round++;
+  if(round > ROUNDS || poolIdx >= pool.length){ return showResults(); }
+  document.getElementById('round-badge').textContent = `🕵️‍♂️ الجولة ${round} / ${ROUNDS}`;
+  renderRound();
+}
+
+function renderRound(){
+  curQ = pool[poolIdx++];
+  sb.setActive(activeI);
+  timeLeft = ROUND_TIME;
+  const words = curQ.context.split(/\s+/);
+  const area = document.getElementById('game-area');
+  area.innerHTML = `
+    <div class="qcard">
+      <div class="qmeta"><span class="badge">دور: ${EGL.escapeHtml(players[activeI].name)}</span></div>
+      <p class="hint">${EGL.escapeHtml(curQ.text)}</p>
+      <div class="timer-bar"><div id="timer-fill" style="width:100%"></div></div>
+      <div class="error-paragraph" id="paragraph">${words.map((w,i)=>`<span class="word-token" data-i="${i}">${EGL.escapeHtml(w)}</span>`).join(' ')}</div>
+    </div>`;
+  document.querySelectorAll('.word-token').forEach(el=>el.addEventListener('click', ()=>tapWord(el)));
+  timerInt = setInterval(()=>{
+    timeLeft--;
+    const fill = document.getElementById('timer-fill');
+    if(fill) fill.style.width = (timeLeft/ROUND_TIME*100)+'%';
+    if(timeLeft<=0) failRound();
+  }, 1000);
+}
+
+function tapWord(el){
+  const answerWords = curQ.answerText.trim().split(/\s+/).map(normalize);
+  const clicked = normalize(el.textContent);
+  if(answerWords.includes(clicked)){
+    clearInterval(timerInt);
+    el.classList.add('found');
+    const points = Math.max(5, Math.round(timeLeft/ROUND_TIME*15) + 8);
+    sb.addScore(activeI, points);
+    EGL.beep('correct'); EGL.confetti(40);
+    EGL.toast(`✅ وجدتموه! +${points} نقطة`);
+    setTimeout(()=>{ activeI = (activeI+1) % players.length; nextRound(); }, 1600);
+  } else {
+    el.classList.add('wrong-flash');
+    EGL.beep('wrong');
+    setTimeout(()=>el.classList.remove('wrong-flash'), 350);
+  }
+}
+
+function failRound(){
+  clearInterval(timerInt);
+  EGL.beep('wrong');
+  EGL.toast('⏱ انتهى الوقت!');
+  setTimeout(()=>{ activeI = (activeI+1) % players.length; nextRound(); }, 1200);
+}
+
+function showResults(){
+  EGL.confetti(100); EGL.beep('win');
+  const ranking = sb.ranking();
+  const stage = document.getElementById('stage');
+  stage.innerHTML = `<div class="qcard">
+    <div style="font-size:3rem;">🏆</div><h2>انتهت الجولات!</h2>
+    <div class="scoreboard" style="justify-content:center;">
+      ${ranking.map((p,r)=>`<div class="player-chip ${r===0?'active':''}"><div style="font-size:1.4rem;">${r===0?'🥇':r===1?'🥈':r===2?'🥉':p.emoji}</div><div class="pname">${EGL.escapeHtml(p.name)}</div><div class="pscore">${p.score}</div></div>`).join('')}
+    </div>
+    <div style="display:flex; gap:10px; justify-content:center; margin-top:16px;">
+      <button class="btn btn-primary" onclick="location.reload()">🔁 لعب مرة أخرى</button>
+      <a class="btn btn-outline" href="../index.html">🏠 الألعاب الأخرى</a>
+    </div>
+  </div>`;
+}
+
+init();
+</script>
+</body>
+</html>

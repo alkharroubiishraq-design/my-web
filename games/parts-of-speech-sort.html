@@ -1,0 +1,126 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>تصنيف أقسام الكلام — ساحة الصف</title>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>🗂️</text></svg>">
+<link rel="stylesheet" href="../css/style.css">
+<style>
+  .pos-buckets{ display:grid; gap:12px; grid-template-columns: repeat(auto-fit, minmax(140px,1fr)); max-width:700px; margin: 16px auto; }
+  .pos-bucket{ background: var(--surface-2); border-radius:14px; padding:14px; text-align:center; font-weight:900; cursor:pointer; border:3px solid transparent; min-height:70px; }
+  .pos-bucket.target{ border-color: var(--accent-2); }
+  .pos-bucket.wrong-flash{ background: rgba(255,92,92,.35); border-color: var(--danger); }
+  .pos-pool{ display:flex; flex-wrap:wrap; gap:10px; justify-content:center; margin: 14px 0; }
+  .pos-card{ background: var(--surface-2); border-radius:10px; padding:10px 16px; font-weight:800; cursor:pointer; border:3px solid transparent; transition:.15s; }
+  .pos-card:hover{ border-color: var(--primary); }
+  .pos-card.selected{ border-color: var(--accent-2); transform: scale(1.05); }
+  .pos-card.done{ opacity:0; pointer-events:none; }
+</style>
+</head>
+<body>
+<nav class="topnav"><div class="container">
+  <a class="brand" href="../index.html"><span class="logo">🎲</span> ساحة الصف</a>
+  <div class="navlinks"><a href="../index.html">الرئيسية</a><a href="../index.html#games">الألعاب</a><a href="../questions.html">بنك الأسئلة</a></div>
+</div></nav>
+
+<div class="game-shell">
+  <div class="game-header container">
+    <h1>🗂️ تصنيف أقسام الكلام</h1>
+    <p>اضغطوا الكلمة ثم اضغطوا الصندوق المناسب لها: اسم، فعل، أو صفة!</p>
+  </div>
+  <div class="game-stage container" id="stage"></div>
+</div>
+
+<script src="../js/common.js"></script>
+<script>
+let sb, players, activeI, pool, buckets, selected, mistakes;
+
+function init(){
+  const stage = document.getElementById('stage');
+  stage.innerHTML = `<div class="empty-state"><div class="emoji">🗂️</div><h3>هيّئ اللعبة</h3><p>تحتاج بنك أسئلة كل سؤال فيه كلمة مفردة في نص السؤال، وفئة السؤال (Category) هي قسم الكلام الصحيح لها (اسم/فعل/صفة).</p>
+    <button class="btn btn-primary" id="btn-setup">ابدأ الإعداد 🎮</button></div>`;
+  document.getElementById('btn-setup').addEventListener('click', openSetup);
+  openSetup();
+}
+function openSetup(){
+  EGL.openSetupModal({ title:'إعداد تصنيف أقسام الكلام', allowIndividual:true, allowTeams:true, needQuestions:true }, startGame);
+}
+
+function startGame(cfg){
+  const bank = EGL.getBank(cfg.bankId);
+  const source = EGL.shuffle(bank.questions.filter(q=>q.category)).slice(0, 10);
+  const cats = [...new Set(source.map(q=>q.category))];
+  if(source.length < 4 || cats.length < 2){ EGL.toast('تحتاج ٤ كلمات على الأقل موزعة على فئتين مختلفتين (استخدم حقل الفئة لتحديد اسم/فعل/صفة)'); return; }
+  pool = source.map(q=>({ text:q.text, cat:q.category, done:false }));
+  buckets = cats.map(c=>({ name:c }));
+  players = cfg.players;
+  activeI = 0;
+  selected = null;
+  mistakes = 0;
+  const stage = document.getElementById('stage');
+  stage.innerHTML = `<div id="sb-wrap" class="scoreboard"></div><div class="pos-buckets" id="buckets"></div><div class="pos-pool" id="pool"></div>`;
+  sb = new EGL.Scoreboard(document.getElementById('sb-wrap'), players);
+  sb.setActive(activeI);
+  renderBuckets();
+  renderPool();
+}
+
+function renderBuckets(){
+  document.getElementById('buckets').innerHTML = buckets.map((b,bi)=>`<div class="pos-bucket" id="bucket-${bi}">${EGL.escapeHtml(b.name)}</div>`).join('');
+  document.querySelectorAll('.pos-bucket').forEach(el=>el.addEventListener('click', ()=>dropInBucket(parseInt(el.id.split('-')[1]))));
+}
+
+function renderPool(){
+  document.getElementById('pool').innerHTML = pool.map((c,i)=>`<div class="pos-card ${c.done?'done':''}" data-i="${i}">${EGL.escapeHtml(c.text)}</div>`).join('');
+  document.querySelectorAll('.pos-card').forEach(el=>el.addEventListener('click', ()=>selectCard(parseInt(el.dataset.i))));
+}
+
+function selectCard(i){
+  if(pool[i].done) return;
+  selected = i;
+  document.querySelectorAll('.pos-card').forEach(c=>c.classList.remove('selected'));
+  document.querySelector(`.pos-card[data-i="${i}"]`).classList.add('selected');
+}
+
+function dropInBucket(bi){
+  if(selected === null){ EGL.toast('اختاروا كلمة أولًا'); return; }
+  const card = pool[selected];
+  if(card.cat === buckets[bi].name){
+    card.done = true;
+    sb.addScore(activeI, 8);
+    EGL.beep('correct'); EGL.confetti(20);
+    selected = null;
+    renderPool();
+    if(pool.every(c=>c.done)) return finishGame();
+    activeI = (activeI+1) % players.length;
+    sb.setActive(activeI);
+  } else {
+    mistakes++;
+    const el = document.getElementById('bucket-'+bi);
+    el.classList.add('wrong-flash');
+    EGL.beep('wrong');
+    setTimeout(()=>el.classList.remove('wrong-flash'), 400);
+  }
+}
+
+function finishGame(){
+  EGL.confetti(120); EGL.beep('win');
+  const ranking = sb.ranking();
+  const stage = document.getElementById('stage');
+  stage.innerHTML = `<div class="qcard">
+    <div style="font-size:3rem;">🏆</div><h2>صنّفتم كل الكلمات!</h2>
+    <div class="scoreboard" style="justify-content:center;">
+      ${ranking.map((p,r)=>`<div class="player-chip ${r===0?'active':''}"><div style="font-size:1.4rem;">${r===0?'🥇':r===1?'🥈':r===2?'🥉':p.emoji}</div><div class="pname">${EGL.escapeHtml(p.name)}</div><div class="pscore">${p.score}</div></div>`).join('')}
+    </div>
+    <div style="display:flex; gap:10px; justify-content:center; margin-top:16px;">
+      <button class="btn btn-primary" onclick="location.reload()">🔁 لعب مرة أخرى</button>
+      <a class="btn btn-outline" href="../index.html">🏠 الألعاب الأخرى</a>
+    </div>
+  </div>`;
+}
+
+init();
+</script>
+</body>
+</html>
