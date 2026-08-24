@@ -503,6 +503,10 @@ const EGL = (() => {
   function init() {
     if (!document.querySelector('.game-shell')) return;
     if (document.getElementById('egl-teacher-controls')) return;
+    // شاشة انضمام الطالب (live-join.html) هي جهاز الطالب نفسه — لا ينبغي أن
+    // تظهر عليها أدوات تحكّم المعلّم المحلية (هذه منفصلة عن تجميد/إخراج الشبكة
+    // الحقيقيين اللذين يديرهما المعلّم من live-host.html عبر Firestore).
+    if (/live-join\.html/.test(location.pathname)) return;
 
     const style = document.createElement('style');
     style.textContent = `

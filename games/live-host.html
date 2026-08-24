@@ -20,6 +20,9 @@
   .answer-bar-track{ flex:1; height:22px; background: var(--surface-2); border-radius:8px; overflow:hidden; }
   .answer-bar-fill{ height:100%; background: var(--grad-1); transition: width .5s; }
   .answer-bar-row.correct .answer-bar-fill{ background: var(--grad-2); }
+  .roster-row{ display:flex; align-items:center; justify-content:space-between; padding:6px 8px; border-radius:8px; font-weight:700; font-size:.85rem; }
+  .roster-row:nth-child(odd){ background: rgba(255,255,255,.04); }
+  .roster-row.kicked{ opacity:.5; text-decoration: line-through; }
 </style>
 </head>
 <body>
@@ -145,6 +148,52 @@ function joinUrl(){
   return location.origin + location.pathname.replace('live-host.html','live-join.html') + '?room=' + code;
 }
 
+/* ---- تجميد/إخراج الطلاب عبر الشبكة (Firestore) — يؤثر مباشرة على أجهزة الطلاب ---- */
+function controlPanelHtml(room){
+  const players = room.players || {};
+  const kicked = room.kicked || {};
+  const frozen = !!room.frozen;
+  const pids = Object.keys(players);
+  const rows = pids.map(pid=>{
+    const p = players[pid];
+    const isKicked = !!kicked[pid];
+    return `<div class="roster-row ${isKicked?'kicked':''}">
+      <span>${p.emoji||'🎓'} ${EGL.escapeHtml(p.name)} — ${p.score||0} نقطة</span>
+      ${isKicked ? '<span class="badge">🚫 مُخرَج</span>' : `<button class="btn btn-outline btn-sm" data-kick="${pid}">🚫 إخراج</button>`}
+    </div>`;
+  }).join('') || '<p class="hint" style="margin:4px 0;">لا يوجد طلاب منضمّون بعد</p>';
+  return `
+    <div class="qcard" style="margin-bottom:14px;">
+      <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:8px;">
+        <strong>👥 إدارة الطلاب (${pids.length})</strong>
+        <button class="btn ${frozen?'btn-gold':'btn-outline'} btn-sm" id="btn-net-freeze">${frozen?'▶ إلغاء تجميد شاشات الطلاب':'⏸ تجميد شاشات الطلاب'}</button>
+      </div>
+      ${frozen ? '<p class="hint" style="margin:8px 0 0;">⏸ شاشات كل الطلاب مجمّدة الآن — لا يمكنهم التفاعل حتى تلغي التجميد.</p>' : ''}
+      <div class="roster-list" id="roster-list" style="margin-top:10px; max-height:180px; overflow-y:auto;">${rows}</div>
+    </div>`;
+}
+
+function wireControlPanel(){
+  const fb = document.getElementById('btn-net-freeze');
+  if(fb) fb.addEventListener('click', toggleFreeze);
+  document.querySelectorAll('[data-kick]').forEach(btn=>{
+    btn.addEventListener('click', ()=>kickPlayer(btn.dataset.kick));
+  });
+}
+
+async function toggleFreeze(){
+  const frozen = !!(latestRoom && latestRoom.frozen);
+  try{ await EGLLive.updateRoom(code, { frozen: !frozen }); EGL.beep('tick'); }
+  catch(e){ EGL.toast('⚠️ تعذّر تحديث حالة التجميد'); }
+}
+
+async function kickPlayer(pid){
+  const p = latestRoom && latestRoom.players && latestRoom.players[pid];
+  if(!confirm(`هل تريد إخراج ${p?p.name:'هذا الطالب'} من الجلسة؟`)) return;
+  try{ await EGLLive.updateRoom(code, { ['kicked.'+pid]: true }); EGL.toast('🚫 تم إخراج الطالب'); }
+  catch(e){ EGL.toast('⚠️ تعذّر إخراج الطالب'); }
+}
+
 function renderLobby(room){
   const players = Object.values(room.players||{});
   const stage = document.getElementById('stage');
@@ -156,8 +205,10 @@ function renderLobby(room){
       <p style="text-align:center; font-weight:800;">👥 المنضمّون (${players.length})</p>
       <div class="players-grid">${players.map(p=>`<div class="player-pill">${p.emoji||'🎓'} ${EGL.escapeHtml(p.name)}</div>`).join('') || '<p class="hint">بانتظار انضمام الطلاب...</p>'}</div>
       <button class="btn btn-gold btn-block" id="btn-start-game">ابدأ اللعبة ▶</button>
-    </div>`;
+    </div>
+    ${controlPanelHtml(room)}`;
   document.getElementById('btn-start-game').addEventListener('click', ()=>broadcastQuestion(0));
+  wireControlPanel();
 }
 
 async function broadcastQuestion(index){
@@ -186,8 +237,10 @@ function renderQuestion(room){
       <div class="qtext">${EGL.escapeHtml(room.currentQuestion.text)}</div>
       <div class="options">${room.currentQuestion.options.map(o=>`<div class="option-btn" style="cursor:default;">${EGL.escapeHtml(o)}</div>`).join('')}</div>
       <button class="btn btn-outline btn-block" id="btn-finish-round" style="margin-top:14px;">⏭ إنهاء الجولة الآن</button>
-    </div>`;
+    </div>
+    ${controlPanelHtml(room)}`;
   document.getElementById('btn-finish-round').addEventListener('click', finishQuestion);
+  wireControlPanel();
   const startedAt = room.questionStartedAt || Date.now();
   const deadline = startedAt + EGLLive.QUESTION_TIME * 1000;
   questionTimerInt = setInterval(()=>{
@@ -265,11 +318,13 @@ function renderReveal(room){
         ${ranking.map((p,r)=>`<div class="player-chip ${r===0?'active':''}"><div>${r===0?'🥇':r===1?'🥈':r===2?'🥉':p.emoji}</div><div class="pname">${EGL.escapeHtml(p.name)}</div><div class="pscore">${p.score||0}</div></div>`).join('')}
       </div>
       <button class="btn btn-primary btn-block" id="btn-next" style="margin-top:14px;">${isLast?'إنهاء وعرض النتائج 🏁':'السؤال التالي ▶'}</button>
-    </div>`;
+    </div>
+    ${controlPanelHtml(room)}`;
   document.getElementById('btn-next').addEventListener('click', async ()=>{
     if(isLast) await EGLLive.updateRoom(code, {phase:'ended'});
     else broadcastQuestion(room.currentIndex+1);
   });
+  wireControlPanel();
 }
 
 function renderEnded(room){

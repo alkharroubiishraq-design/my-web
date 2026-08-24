@@ -105,10 +105,32 @@ async function doJoin(){
 function render(room){
   if(!room){ EGL.toast('⚠️ انتهت الغرفة أو لم تعد موجودة'); return; }
   clearInterval(questionTickInt);
+  if(room.kicked && room.kicked[playerId]){ renderKicked(); return; }
+  if(room.frozen){ renderFrozen(); return; }
   if(room.phase === 'lobby') renderLobby(room);
   else if(room.phase === 'question') renderQuestion(room);
   else if(room.phase === 'reveal') renderReveal(room);
   else if(room.phase === 'ended') renderEnded(room);
+}
+
+function renderFrozen(){
+  const stage = document.getElementById('stage');
+  stage.innerHTML = `<div class="qcard" style="text-align:center;">
+    <div style="font-size:3.5rem;">⏸</div>
+    <h2>الشاشة مجمّدة من قبل المعلّم</h2>
+    <p class="hint">انتظر قليلًا... ستعود اللعبة تلقائيًا حين يلغي المعلّم التجميد.</p>
+  </div>`;
+}
+
+function renderKicked(){
+  if(unsubscribe){ unsubscribe(); unsubscribe = null; }
+  const stage = document.getElementById('stage');
+  stage.innerHTML = `<div class="qcard" style="text-align:center;">
+    <div style="font-size:3.5rem;">🚫</div>
+    <h2>تم إخراجك من الجلسة</h2>
+    <p class="hint">اطلب من المعلّم السماح لك بالانضمام مجددًا إذا لزم الأمر.</p>
+    <a class="btn btn-outline" href="../index.html">🏠 الرئيسية</a>
+  </div>`;
 }
 
 function renderLobby(room){
