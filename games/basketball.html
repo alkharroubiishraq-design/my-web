@@ -1,0 +1,136 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>تصويب كرة السلة — ساحة الصف</title>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>🏀</text></svg>">
+<link rel="stylesheet" href="../css/style.css">
+<style>
+  .hoop-stage{ text-align:center; padding: 14px; }
+  .hoop-emoji{ font-size:4.5rem; transition: transform .5s ease; }
+  .hoop-emoji.swish{ animation: swish .7s ease; }
+  @keyframes swish{ 0%{ transform: translateY(-60px) scale(.7); opacity:0;} 60%{ transform: translateY(0) scale(1.1); opacity:1;} 100%{ transform: translateY(0) scale(1);} }
+  .hoop-emoji.brick{ animation: brick .5s ease; }
+  @keyframes brick{ 0%,100%{ transform: translateX(0);} 25%{ transform: translateX(-14px);} 75%{ transform: translateX(14px);} }
+  .score-strip{ display:flex; gap:16px; justify-content:center; flex-wrap:wrap; margin-bottom:10px; font-weight:900; font-size:1.1rem; }
+  .score-strip .on-fire{ color: var(--accent-2); }
+</style>
+</head>
+<body>
+<nav class="topnav"><div class="container">
+  <a class="brand" href="../index.html"><span class="logo">🎲</span> ساحة الصف</a>
+  <div class="navlinks"><a href="../index.html">الرئيسية</a><a href="../index.html#games">الألعاب</a><a href="../questions.html">بنك الأسئلة</a></div>
+</div></nav>
+
+<div class="game-shell">
+  <div class="game-header container">
+    <h1>🏀 تصويب كرة السلة</h1>
+    <p>كل إجابة صحيحة تسديدة ناجحة (٢ أو ٣ نقاط حسب الصعوبة) — ثلاث تسديدات متتالية تشعلكم "بالنار" لنقطة إضافية! أول من يصل ٢١ يفوز.</p>
+  </div>
+  <div class="game-stage container" id="stage"></div>
+</div>
+
+<script src="../js/common.js"></script>
+<script>
+const TARGET = 21;
+const MAX_ATTEMPTS = 40;
+let teams, questions, qIdx, scores, streak, turnIdx, attempts;
+
+function init(){
+  const stage = document.getElementById('stage');
+  stage.innerHTML = `<div class="empty-state"><div class="emoji">🏀</div><h3>هيّئ اللعبة</h3><p>فريقان أو أكثر يتناوبون التسديد بالإجابة الصحيحة حتى يصل أحدهم لـ ٢١ نقطة.</p>
+    <button class="btn btn-primary" id="btn-setup">ابدأ الإعداد 🎮</button></div>`;
+  document.getElementById('btn-setup').addEventListener('click', openSetup);
+  openSetup();
+}
+function openSetup(){
+  EGL.openSetupModal({ title:'إعداد تصويب كرة السلة', allowIndividual:false, allowTeams:true, needQuestions:true, qType:['mcq','tf'], minPlayers:2, maxPlayers:4 }, startGame);
+}
+
+function startGame(cfg){
+  const bank = EGL.getBank(cfg.bankId);
+  questions = EGL.shuffle(bank.questions.filter(q=>q.type==='mcq'||q.type==='tf'));
+  if(!questions.length){ EGL.toast('لا توجد أسئلة اختيار/صح-خطأ في هذا البنك'); return; }
+  qIdx = 0;
+  teams = cfg.players;
+  scores = teams.map(()=>0);
+  streak = teams.map(()=>0);
+  turnIdx = 0;
+  attempts = 0;
+  const stage = document.getElementById('stage');
+  stage.innerHTML = `<div class="score-strip" id="score-strip"></div><div class="hoop-stage"><div class="hoop-emoji" id="hoop">🏀</div></div><div id="q-area"></div>`;
+  updateScores();
+  renderQuestion();
+}
+
+function updateScores(){
+  document.getElementById('score-strip').innerHTML = teams.map((t,i)=>`<span class="${streak[i]>=3?'on-fire':''}">${t.emoji} ${EGL.escapeHtml(t.name)}: ${scores[i]}${streak[i]>=3?' 🔥':''}</span>`).join('');
+}
+
+function renderQuestion(){
+  if(qIdx >= questions.length){ questions = EGL.shuffle(questions); qIdx = 0; }
+  const q = questions[qIdx];
+  const area = document.getElementById('q-area');
+  area.innerHTML = `
+    <div class="qcard">
+      <div class="qmeta"><span class="badge">🎯 دور: ${teams[turnIdx].emoji} ${EGL.escapeHtml(teams[turnIdx].name)}</span><span class="badge">${EGL.diffLabel(q.difficulty)}</span></div>
+      <div class="qtext">${EGL.escapeHtml(q.text)}</div>
+      <div class="options" id="opts">${q.options.map((o,i)=>`<button class="option-btn" data-i="${i}">${EGL.escapeHtml(o)}</button>`).join('')}</div>
+    </div>`;
+  area.querySelectorAll('.option-btn').forEach(btn=>btn.addEventListener('click', ()=>answer(parseInt(btn.dataset.i), q)));
+}
+
+function answer(i, q){
+  const opts = document.querySelectorAll('.option-btn');
+  opts.forEach(b=>b.disabled=true);
+  opts[i].classList.add(i===q.correctIndex?'correct':'wrong');
+  opts[q.correctIndex].classList.add('correct');
+  const hoop = document.getElementById('hoop');
+  attempts++;
+  if(i === q.correctIndex){
+    const base = q.difficulty === 'hard' ? 3 : 2;
+    const bonus = streak[turnIdx] >= 2 ? 1 : 0;
+    scores[turnIdx] += base + bonus;
+    streak[turnIdx]++;
+    hoop.classList.remove('brick'); void hoop.offsetWidth; hoop.classList.add('swish');
+    EGL.beep('correct');
+    if(streak[turnIdx] >= 3) EGL.toast(`🔥 ${teams[turnIdx].name} على النار!`);
+  } else {
+    streak[turnIdx] = 0;
+    hoop.classList.remove('swish'); void hoop.offsetWidth; hoop.classList.add('brick');
+    EGL.beep('wrong');
+  }
+  updateScores();
+  setTimeout(()=>{
+    if(scores[turnIdx] >= TARGET){ return finishGame(); }
+    if(attempts >= MAX_ATTEMPTS){ return finishGame(); }
+    qIdx++;
+    turnIdx = (turnIdx+1) % teams.length;
+    renderQuestion();
+  }, 1300);
+}
+
+function finishGame(){
+  EGL.confetti(150); EGL.beep('win');
+  const maxScore = Math.max(...scores);
+  const winners = teams.map((_,i)=>i).filter(i=>scores[i]===maxScore);
+  const area = document.getElementById('q-area');
+  const winHtml = winners.length === 1
+    ? `<h2>${teams[winners[0]].emoji} ${EGL.escapeHtml(teams[winners[0]].name)} يفوز بالمباراة! 🏆</h2>`
+    : `<h2>🤝 تعادل بين ${winners.map(i=>teams[i].name).join(' و')}!</h2>`;
+  area.innerHTML = `<div class="qcard">
+    <div style="font-size:3rem;">🏀</div>
+    ${winHtml}
+    <p class="hint">النتيجة النهائية: ${teams.map((t,i)=>`${t.name}: ${scores[i]}`).join(' — ')}</p>
+    <div style="display:flex; gap:10px; justify-content:center; margin-top:16px;">
+      <button class="btn btn-primary" onclick="location.reload()">🔁 مباراة جديدة</button>
+      <a class="btn btn-outline" href="../index.html">🏠 الألعاب الأخرى</a>
+    </div>
+  </div>`;
+}
+
+init();
+</script>
+</body>
+</html>

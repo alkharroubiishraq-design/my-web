@@ -1,0 +1,153 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>هرم المعرفة — ساحة الصف</title>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>🔺</text></svg>">
+<link rel="stylesheet" href="../css/style.css">
+<style>
+  .peek-words{ display:flex; flex-direction:column; gap:8px; font-size:1.3rem; font-weight:900; text-align:center; color: var(--accent-2); margin:14px 0; }
+  .word-row{ display:flex; align-items:center; justify-content:space-between; background: var(--surface-2); border-radius:10px; padding:10px 14px; margin-bottom:8px; }
+  .word-row.done{ opacity:.4; text-decoration: line-through; }
+  .word-row .wtext{ font-weight:800; }
+</style>
+</head>
+<body>
+<nav class="topnav"><div class="container">
+  <a class="brand" href="../index.html"><span class="logo">🎲</span> ساحة الصف</a>
+  <div class="navlinks"><a href="../index.html">الرئيسية</a><a href="../index.html#games">الألعاب</a><a href="../questions.html">بنك الأسئلة</a></div>
+</div></nav>
+
+<div class="game-shell">
+  <div class="game-header container">
+    <h1>🔺 هرم المعرفة</h1>
+    <p>يرى قائد الفريق فقط قائمة ٤ كلمات — عليه وصفها لفريقه بأي كلمات أخرى (بدون ذكرها) ليخمّنوها جميعًا قبل نفاد الوقت!</p>
+  </div>
+  <div class="game-stage container" id="stage"></div>
+</div>
+
+<script src="../js/common.js"></script>
+<script>
+const ROUND_TIME = 45;
+let sb, players, giverI, pool, poolIdx, words, doneFlags, timerInt, timeLeft;
+
+function init(){
+  const stage = document.getElementById('stage');
+  stage.innerHTML = `<div class="empty-state"><div class="emoji">🔺</div><h3>هيّئ اللعبة</h3><p>تحتاج بنك أسئلة فيه إجابات نصية قصيرة (كلمات أو مصطلحات).</p>
+    <button class="btn btn-primary" id="btn-setup">ابدأ الإعداد 🎮</button></div>`;
+  document.getElementById('btn-setup').addEventListener('click', openSetup);
+  openSetup();
+}
+function openSetup(){
+  EGL.openSetupModal({ title:'إعداد هرم المعرفة', allowIndividual:true, allowTeams:true, needQuestions:true }, startGame);
+}
+
+function startGame(cfg){
+  const bank = EGL.getBank(cfg.bankId);
+  const eligible = bank.questions.filter(q => q.answerText && q.answerText.trim().length >= 2 && q.answerText.trim().length <= 16);
+  if(eligible.length < 4){ EGL.toast('تحتاج هذه اللعبة ٤ أسئلة على الأقل ذات إجابات نصية قصيرة'); return; }
+  pool = EGL.shuffle(eligible);
+  poolIdx = 0;
+  players = cfg.players;
+  giverI = 0;
+  const stage = document.getElementById('stage');
+  stage.innerHTML = `<div id="sb-wrap" class="scoreboard"></div><div id="round-info"></div>`;
+  sb = new EGL.Scoreboard(document.getElementById('sb-wrap'), players);
+  startRound();
+}
+
+function nextWords(){
+  const picked = [];
+  for(let i=0;i<4;i++){
+    if(poolIdx >= pool.length){ pool = EGL.shuffle(pool); poolIdx = 0; }
+    picked.push(pool[poolIdx++].answerText.trim());
+  }
+  return picked;
+}
+
+function startRound(){
+  clearInterval(timerInt);
+  sb.setActive(giverI);
+  words = nextWords();
+  doneFlags = words.map(()=>false);
+  const area = document.getElementById('round-info');
+  area.innerHTML = `
+    <div class="qcard">
+      <p class="hint">قائد الهرم: <strong style="color:var(--accent-2)">${players[giverI].emoji} ${EGL.escapeHtml(players[giverI].name)}</strong></p>
+      <p>عليه فقط الضغط لرؤية الكلمات، ثم وصفها لفريقه شفهيًا بدون ذكرها.</p>
+      <button class="btn btn-gold" id="btn-peek">👁 اعرض الكلمات لي فقط (٤ ثوانٍ)</button>
+    </div>`;
+  document.getElementById('btn-peek').addEventListener('click', peekWords);
+}
+
+function peekWords(){
+  const area = document.getElementById('round-info');
+  area.innerHTML = `<div class="qcard"><div class="peek-words">${words.map(w=>`<div>${EGL.escapeHtml(w)}</div>`).join('')}</div><p class="hint">احفظوها... ستبدأ الجولة تلقائيًا</p></div>`;
+  EGL.beep('tick');
+  setTimeout(startChecklist, 4000);
+}
+
+function startChecklist(){
+  timeLeft = ROUND_TIME;
+  renderChecklist();
+  timerInt = setInterval(()=>{
+    timeLeft--;
+    const fill = document.getElementById('timer-fill');
+    if(fill) fill.style.width = (timeLeft/ROUND_TIME*100)+'%';
+    if(timeLeft<=0) endRound();
+  }, 1000);
+}
+
+function renderChecklist(){
+  const area = document.getElementById('round-info');
+  area.innerHTML = `
+    <div class="timer-bar"><div id="timer-fill" style="width:100%"></div></div>
+    <div class="qcard">
+      <p class="hint">صِف الكلمات لفريقك — اضغطوا "✅" عند تخمين كل كلمة بشكل صحيح!</p>
+      ${words.map((w,i)=>`<div class="word-row ${doneFlags[i]?'done':''}" id="wrow-${i}"><span class="wtext">كلمة ${i+1}</span>${doneFlags[i]?'<span>✅</span>':`<button class="btn btn-accent btn-sm" data-i="${i}">✅ خُمّنت</button>`}</div>`).join('')}
+      <div style="text-align:center; margin-top:10px;"><button class="btn btn-outline" id="btn-skip">⏭ إنهاء الجولة الآن</button></div>
+    </div>`;
+  area.querySelectorAll('[data-i]').forEach(btn=>btn.addEventListener('click', ()=>tickWord(parseInt(btn.dataset.i))));
+  document.getElementById('btn-skip').addEventListener('click', endRound);
+}
+
+function tickWord(i){
+  if(doneFlags[i]) return;
+  doneFlags[i] = true;
+  EGL.beep('correct');
+  renderChecklist();
+  if(doneFlags.every(Boolean)){ EGL.confetti(60); setTimeout(endRound, 400); }
+}
+
+function endRound(){
+  clearInterval(timerInt);
+  const cleared = doneFlags.filter(Boolean).length;
+  const points = cleared * 10;
+  sb.addScore(giverI, points);
+  EGL.toast(`🔺 ${players[giverI].name} أنهى الهرم بـ ${cleared}/4 كلمات (+${points})`);
+  giverI++;
+  if(giverI >= players.length){ setTimeout(showResults, 1200); return; }
+  setTimeout(startRound, 1200);
+}
+
+function showResults(){
+  EGL.confetti(100); EGL.beep('win');
+  const ranking = sb.ranking();
+  const stage = document.getElementById('stage');
+  stage.innerHTML = `<div class="qcard">
+    <div style="font-size:3rem;">🏆</div><h2>انتهت الجولات!</h2>
+    <div class="scoreboard" style="justify-content:center;">
+      ${ranking.map((p,r)=>`<div class="player-chip ${r===0?'active':''}"><div style="font-size:1.4rem;">${r===0?'🥇':r===1?'🥈':r===2?'🥉':p.emoji}</div><div class="pname">${EGL.escapeHtml(p.name)}</div><div class="pscore">${p.score}</div></div>`).join('')}
+    </div>
+    <div style="display:flex; gap:10px; justify-content:center; margin-top:16px;">
+      <button class="btn btn-primary" onclick="location.reload()">🔁 لعب مرة أخرى</button>
+      <a class="btn btn-outline" href="../index.html">🏠 الألعاب الأخرى</a>
+    </div>
+  </div>`;
+}
+
+init();
+</script>
+</body>
+</html>

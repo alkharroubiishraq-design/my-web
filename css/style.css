@@ -290,3 +290,36 @@ table.qtable th{ color: var(--text-dim); font-size:.8rem; }
 
 ::-webkit-scrollbar{ width:10px; height:10px; }
 ::-webkit-scrollbar-thumb{ background: var(--surface-2); border-radius:10px; }
+.gc-58{ background: linear-gradient(160deg, #3988c5 0%, #122b3f 100%); }
+.gc-59{ background: linear-gradient(160deg, #5739c5 0%, #1c123f 100%); }
+.gc-60{ background: linear-gradient(160deg, #c539c5 0%, #3f123f 100%); }
+.gc-61{ background: linear-gradient(160deg, #c53957 0%, #3f121c 100%); }
+.gc-62{ background: linear-gradient(160deg, #c58839 0%, #3f2b12 100%); }
+.gc-63{ background: linear-gradient(160deg, #94c539 0%, #2f3f12 100%); }
+.gc-64{ background: linear-gradient(160deg, #39c54c 0%, #123f18 100%); }
+.gc-65{ background: linear-gradient(160deg, #39c5b9 0%, #123f3b 100%); }
+.gc-66{ background: linear-gradient(160deg, #3963c5 0%, #121f3f 100%); }
+.gc-67{ background: linear-gradient(160deg, #7d39c5 0%, #28123f 100%); }
+.gc-68{ background: linear-gradient(160deg, #c539a0 0%, #3f1233 100%); }
+.gc-69{ background: linear-gradient(160deg, #c54039 0%, #3f1412 100%); }
+.gc-70{ background: linear-gradient(160deg, #c5ae39 0%, #3f3712 100%); }
+.gc-71{ background: linear-gradient(160deg, #6fc539 0%, #233f12 100%); }
+.gc-72{ background: linear-gradient(160deg, #39c571 0%, #123f24 100%); }
+.gc-73{ background: linear-gradient(160deg, #39abc5 0%, #12373f 100%); }
+.gc-74{ background: linear-gradient(160deg, #393ec5 0%, #12133f 100%); }
+.gc-75{ background: linear-gradient(160deg, #a239c5 0%, #34123f 100%); }
+.gc-76{ background: linear-gradient(160deg, #c5397a 0%, #3f1227 100%); }
+.gc-77{ background: linear-gradient(160deg, #c56539 0%, #3f2012 100%); }
+.gc-78{ background: linear-gradient(160deg, #b7c539 0%, #3a3f12 100%); }
+.gc-79{ background: linear-gradient(160deg, #49c539 0%, #173f12 100%); }
+.gc-80{ background: linear-gradient(160deg, #39c596 0%, #123f30 100%); }
+.gc-81{ background: linear-gradient(160deg, #3986c5 0%, #122b3f 100%); }
+.gc-82{ background: linear-gradient(160deg, #5a39c5 0%, #1c123f 100%); }
+.gc-83{ background: linear-gradient(160deg, #c539c3 0%, #3f123e 100%); }
+.gc-84{ background: linear-gradient(160deg, #c53955 0%, #3f121b 100%); }
+.gc-85{ background: linear-gradient(160deg, #c58b39 0%, #3f2c12 100%); }
+.gc-86{ background: linear-gradient(160deg, #92c539 0%, #2e3f12 100%); }
+.gc-87{ background: linear-gradient(160deg, #39c54e 0%, #123f19 100%); }
+.gc-88{ background: linear-gradient(160deg, #39c5bc 0%, #123f3c 100%); }
+.gc-89{ background: linear-gradient(160deg, #3961c5 0%, #121f3f 100%); }
+.gc-90{ background: linear-gradient(160deg, #7f39c5 0%, #28123f 100%); }

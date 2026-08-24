@@ -1,0 +1,148 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>روليت الأسئلة — ساحة الصف</title>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>🎡</text></svg>">
+<link rel="stylesheet" href="../css/style.css">
+<style>
+  .roulette-row{ display:flex; flex-wrap:wrap; gap:8px; justify-content:center; margin: 10px 0 18px; }
+  .roulette-chip{ background: var(--surface-2); border-radius:10px; padding:8px 14px; font-weight:800; font-size:.85rem; border:3px solid transparent; }
+  .roulette-chip.spin-hit{ border-color: var(--accent-2); transform: scale(1.08); }
+  .roulette-chip.landed{ border-color: var(--success); background: rgba(43,224,138,.25); }
+  .spin-label{ text-align:center; font-weight:900; margin-bottom:6px; color: var(--text-dim); }
+</style>
+</head>
+<body>
+<nav class="topnav"><div class="container">
+  <a class="brand" href="../index.html"><span class="logo">🎲</span> ساحة الصف</a>
+  <div class="navlinks"><a href="../index.html">الرئيسية</a><a href="../index.html#games">الألعاب</a><a href="../questions.html">بنك الأسئلة</a></div>
+</div></nav>
+
+<div class="game-shell">
+  <div class="game-header container">
+    <h1>🎡 روليت الأسئلة</h1>
+    <p>عجلتان تدوران قبل كل سؤال — واحدة تختار الفئة وأخرى تختار من سيجيب! تشويق مضاعف قبل كل جولة.</p>
+  </div>
+  <div class="game-stage container" id="stage"></div>
+</div>
+
+<script src="../js/common.js"></script>
+<script>
+let players, scores, questions, categories, round, ROUNDS, sb;
+
+function init(){
+  const stage = document.getElementById('stage');
+  stage.innerHTML = `<div class="empty-state"><div class="emoji">🎡</div><h3>هيّئ اللعبة</h3><p>أي بنك أسئلة يصلح — كلما تنوعت الفئات زاد التشويق.</p>
+    <button class="btn btn-primary" id="btn-setup">ابدأ الإعداد 🎮</button></div>`;
+  document.getElementById('btn-setup').addEventListener('click', openSetup);
+  openSetup();
+}
+function openSetup(){
+  EGL.openSetupModal({ title:'إعداد روليت الأسئلة', allowIndividual:true, allowTeams:true, needQuestions:true, minPlayers:2, maxPlayers:6 }, startGame);
+}
+
+function startGame(cfg){
+  const bank = EGL.getBank(cfg.bankId);
+  questions = EGL.shuffle(bank.questions.filter(q=>q.type==='mcq'||q.type==='tf'));
+  if(!questions.length){ EGL.toast('لا توجد أسئلة اختيار/صح-خطأ في هذا البنك'); return; }
+  categories = [...new Set(questions.map(q=>q.category||'عام'))];
+  if(categories.length < 2) categories = [...categories, 'عام'];
+  players = cfg.players;
+  round = 0;
+  ROUNDS = Math.min(8, questions.length);
+  const stage = document.getElementById('stage');
+  stage.innerHTML = `<div id="sb-wrap" class="scoreboard"></div><div class="badge" id="round-badge" style="display:block; text-align:center; margin:8px 0;"></div><div id="game-area"></div>`;
+  sb = new EGL.Scoreboard(document.getElementById('sb-wrap'), players);
+  nextRound();
+}
+
+function nextRound(){
+  round++;
+  if(round > ROUNDS){ return showResults(); }
+  document.getElementById('round-badge').textContent = `🎡 الجولة ${round} / ${ROUNDS}`;
+  const area = document.getElementById('game-area');
+  area.innerHTML = `
+    <div class="spin-label">🏷️ تدور عجلة الفئة...</div>
+    <div class="roulette-row" id="cat-row">${categories.map(c=>`<div class="roulette-chip">${EGL.escapeHtml(c)}</div>`).join('')}</div>
+    <div class="spin-label">🙋 تدور عجلة اللاعب...</div>
+    <div class="roulette-row" id="player-row">${players.map(p=>`<div class="roulette-chip">${p.emoji} ${EGL.escapeHtml(p.name)}</div>`).join('')}</div>`;
+  const catTarget = Math.floor(Math.random()*categories.length);
+  const playerTarget = Math.floor(Math.random()*players.length);
+  spinList('cat-row', categories.length, catTarget, ()=>{
+    spinList('player-row', players.length, playerTarget, ()=>{
+      setTimeout(()=>askQuestion(categories[catTarget], playerTarget), 700);
+    });
+  });
+}
+
+function spinList(containerId, count, targetIdx, done){
+  const chips = document.querySelectorAll('#'+containerId+' .roulette-chip');
+  const delays = [80,80,90,100,120,140,170,210,260,320,390];
+  let step = 0;
+  function tick(){
+    chips.forEach(c=>c.classList.remove('spin-hit'));
+    const idx = step < delays.length-1 ? (step % count) : targetIdx;
+    if(chips[idx]) chips[idx].classList.add('spin-hit');
+    EGL.beep('tick');
+    step++;
+    if(step < delays.length){ setTimeout(tick, delays[step-1] || 200); }
+    else {
+      chips.forEach(c=>c.classList.remove('spin-hit'));
+      if(chips[targetIdx]) chips[targetIdx].classList.add('landed');
+      EGL.beep('win');
+      setTimeout(done, 300);
+    }
+  }
+  tick();
+}
+
+function askQuestion(category, playerIdx){
+  const pool = questions.filter(q => (q.category||'عام') === category);
+  const q = pool.length ? EGL.pick(pool) : EGL.pick(questions);
+  sb.setActive(playerIdx);
+  const area = document.getElementById('game-area');
+  area.innerHTML = `
+    <div class="qcard">
+      <div class="qmeta"><span class="badge">🏷️ ${EGL.escapeHtml(category)}</span><span class="badge">🙋 ${players[playerIdx].emoji} ${EGL.escapeHtml(players[playerIdx].name)}</span><span class="badge">${EGL.diffLabel(q.difficulty)}</span></div>
+      <div class="qtext">${EGL.escapeHtml(q.text)}</div>
+      <div class="options" id="opts">${q.options.map((o,i)=>`<button class="option-btn" data-i="${i}">${EGL.escapeHtml(o)}</button>`).join('')}</div>
+    </div>`;
+  area.querySelectorAll('.option-btn').forEach(btn=>btn.addEventListener('click', ()=>answer(parseInt(btn.dataset.i), q, playerIdx)));
+}
+
+function answer(i, q, playerIdx){
+  const opts = document.querySelectorAll('.option-btn');
+  opts.forEach(b=>b.disabled=true);
+  opts[i].classList.add(i===q.correctIndex?'correct':'wrong');
+  opts[q.correctIndex].classList.add('correct');
+  if(i === q.correctIndex){
+    sb.addScore(playerIdx, q.points || 10);
+    EGL.beep('correct'); EGL.confetti(30);
+  } else {
+    EGL.beep('wrong');
+  }
+  setTimeout(nextRound, 1800);
+}
+
+function showResults(){
+  EGL.confetti(100); EGL.beep('win');
+  const ranking = sb.ranking();
+  const stage = document.getElementById('stage');
+  stage.innerHTML = `<div class="qcard">
+    <div style="font-size:3rem;">🏆</div><h2>انتهت الجولات!</h2>
+    <div class="scoreboard" style="justify-content:center;">
+      ${ranking.map((p,r)=>`<div class="player-chip ${r===0?'active':''}"><div style="font-size:1.4rem;">${r===0?'🥇':r===1?'🥈':r===2?'🥉':p.emoji}</div><div class="pname">${EGL.escapeHtml(p.name)}</div><div class="pscore">${p.score}</div></div>`).join('')}
+    </div>
+    <div style="display:flex; gap:10px; justify-content:center; margin-top:16px;">
+      <button class="btn btn-primary" onclick="location.reload()">🔁 لعب مرة أخرى</button>
+      <a class="btn btn-outline" href="../index.html">🏠 الألعاب الأخرى</a>
+    </div>
+  </div>`;
+}
+
+init();
+</script>
+</body>
+</html>

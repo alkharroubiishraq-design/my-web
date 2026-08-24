@@ -1,0 +1,185 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>توصيل أربعة — ساحة الصف</title>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>🔴</text></svg>">
+<link rel="stylesheet" href="../css/style.css">
+<style>
+  .c4-board{ display:grid; grid-template-columns: repeat(7, 1fr); gap:5px; width: min(420px, 92vw); margin: 14px auto; background: var(--surface-2); border-radius:14px; padding:8px; }
+  .c4-col{ display:flex; flex-direction:column; gap:5px; cursor:pointer; }
+  .c4-cell{ aspect-ratio:1/1; border-radius:50%; background: var(--surface); display:flex; align-items:center; justify-content:center; font-size:1.3rem; }
+  .c4-cell.p0{ background: rgba(255,92,92,.7); }
+  .c4-cell.p1{ background: rgba(255,210,63,.7); }
+  .c4-col.full{ cursor:default; opacity:.5; }
+  .c4-col.win .c4-cell.win-cell{ box-shadow: 0 0 0 3px var(--success) inset; }
+  .turn-banner{ text-align:center; font-weight:900; font-size:1.05rem; margin-bottom:4px; }
+</style>
+</head>
+<body>
+<nav class="topnav"><div class="container">
+  <a class="brand" href="../index.html"><span class="logo">🎲</span> ساحة الصف</a>
+  <div class="navlinks"><a href="../index.html">الرئيسية</a><a href="../index.html#games">الألعاب</a><a href="../questions.html">بنك الأسئلة</a></div>
+</div></nav>
+
+<div class="game-shell">
+  <div class="game-header container">
+    <h1>🔴🟡 توصيل أربعة</h1>
+    <p>فريقان يتناوبان اختيار عمود — أجيبوا صح لتُسقطوا قطعتكم فيه، وأول من يوصّل ٤ متتالية (أفقي أو عمودي أو قطري) يفوز!</p>
+  </div>
+  <div class="game-stage container" id="stage"></div>
+</div>
+
+<script src="../js/common.js"></script>
+<script>
+const COLS = 7, ROWS = 6;
+let teams, questions, qIdx, board, turnIdx, pendingCol, gameOver=false;
+
+function init(){
+  const stage = document.getElementById('stage');
+  stage.innerHTML = `<div class="empty-state"><div class="emoji">🔴</div><h3>هيّئ اللعبة</h3><p>لعبة توصيل أربعة الكلاسيكية لفريقين — كل عمود يحتاج إجابة صحيحة لإسقاط القطعة فيه.</p>
+    <button class="btn btn-primary" id="btn-setup">ابدأ الإعداد 🎮</button></div>`;
+  document.getElementById('btn-setup').addEventListener('click', openSetup);
+  openSetup();
+}
+function openSetup(){
+  EGL.openSetupModal({ title:'إعداد توصيل أربعة', allowIndividual:false, allowTeams:true, needQuestions:true, qType:['mcq','tf'], minPlayers:2, maxPlayers:2 }, startGame);
+}
+
+function startGame(cfg){
+  const bank = EGL.getBank(cfg.bankId);
+  questions = EGL.shuffle(bank.questions.filter(q=>q.type==='mcq'||q.type==='tf'));
+  if(questions.length < 6){ EGL.toast('تحتاج هذه اللعبة ٦ أسئلة اختيار/صح-خطأ على الأقل'); return; }
+  if(cfg.players.length !== 2){ EGL.toast('توصيل أربعة تحتاج فريقين بالضبط'); return; }
+  teams = cfg.players;
+  qIdx = 0;
+  board = new Array(COLS*ROWS).fill(null);
+  turnIdx = 0;
+  gameOver = false;
+  const stage = document.getElementById('stage');
+  stage.innerHTML = `<div class="turn-banner" id="turn-banner"></div><div class="c4-board" id="board"></div><div id="q-area"></div>`;
+  renderBoard();
+  updateBanner();
+}
+
+function idx(r,c){ return r*COLS+c; }
+
+function renderBoard(){
+  const el = document.getElementById('board');
+  el.innerHTML = '';
+  for(let c=0;c<COLS;c++){
+    const colDiv = document.createElement('div');
+    colDiv.className = 'c4-col';
+    const lowestEmpty = lowestEmptyRow(c);
+    if(lowestEmpty === -1) colDiv.classList.add('full');
+    else colDiv.addEventListener('click', ()=>pickCol(c));
+    for(let r=0;r<ROWS;r++){
+      const cell = board[idx(r,c)];
+      const d = document.createElement('div');
+      d.className = 'c4-cell' + (cell ? ' p'+cell.teamIdx : '');
+      d.dataset.r = r; d.dataset.c = c;
+      colDiv.appendChild(d);
+    }
+    el.appendChild(colDiv);
+  }
+}
+
+function lowestEmptyRow(c){
+  for(let r=ROWS-1;r>=0;r--) if(!board[idx(r,c)]) return r;
+  return -1;
+}
+
+function updateBanner(){
+  document.getElementById('turn-banner').innerHTML = `🎯 دور: <span style="color:var(--accent-2)">${teams[turnIdx].emoji} ${EGL.escapeHtml(teams[turnIdx].name)} ${turnIdx===0?'🔴':'🟡'}</span>`;
+}
+
+function pickCol(c){
+  if(gameOver || lowestEmptyRow(c) === -1) return;
+  pendingCol = c;
+  if(qIdx >= questions.length){ questions = EGL.shuffle(questions); qIdx = 0; }
+  const q = questions[qIdx++];
+  window._c4Q = q;
+  document.querySelectorAll('.c4-col').forEach(cl=>cl.style.pointerEvents='none');
+  const area = document.getElementById('q-area');
+  area.innerHTML = `
+    <div class="qcard">
+      <div class="qmeta"><span class="badge">عمود رقم ${c+1}</span><span class="badge">${EGL.diffLabel(q.difficulty)}</span></div>
+      <div class="qtext">${EGL.escapeHtml(q.text)}</div>
+      <div class="options" id="opts">${q.options.map((o,oi)=>`<button class="option-btn" data-oi="${oi}">${EGL.escapeHtml(o)}</button>`).join('')}</div>
+    </div>`;
+  area.querySelectorAll('.option-btn').forEach(btn=>btn.addEventListener('click', ()=>answerCol(parseInt(btn.dataset.oi))));
+}
+
+function answerCol(oi){
+  const q = window._c4Q;
+  const opts = document.querySelectorAll('.option-btn');
+  opts.forEach(b=>b.disabled=true);
+  opts[oi].classList.add(oi===q.correctIndex?'correct':'wrong');
+  opts[q.correctIndex].classList.add('correct');
+  const correct = oi === q.correctIndex;
+  if(correct){
+    const r = lowestEmptyRow(pendingCol);
+    board[idx(r,pendingCol)] = { teamIdx: turnIdx };
+    EGL.beep('correct');
+  } else {
+    EGL.beep('wrong');
+    EGL.toast('❌ إجابة خاطئة — الدور ينتقل بلا قطعة');
+  }
+  setTimeout(()=>{
+    document.getElementById('q-area').innerHTML = '';
+    renderBoard();
+    const win = correct ? checkWin() : null;
+    if(win){ return endGame(turnIdx, win); }
+    if(board.every(c=>c)) return endGame(null);
+    turnIdx = 1 - turnIdx;
+    updateBanner();
+  }, 1600);
+}
+
+function checkWin(){
+  const dirs = [[0,1],[1,0],[1,1],[1,-1]];
+  for(let r=0;r<ROWS;r++) for(let c=0;c<COLS;c++){
+    const cell = board[idx(r,c)];
+    if(!cell) continue;
+    for(const [dr,dc] of dirs){
+      const line = [[r,c]];
+      for(let k=1;k<4;k++){
+        const nr=r+dr*k, nc=c+dc*k;
+        if(nr<0||nr>=ROWS||nc<0||nc>=COLS) break;
+        const nCell = board[idx(nr,nc)];
+        if(!nCell || nCell.teamIdx !== cell.teamIdx) break;
+        line.push([nr,nc]);
+      }
+      if(line.length===4) return line;
+    }
+  }
+  return null;
+}
+
+function endGame(teamIdx, line){
+  gameOver = true;
+  document.querySelectorAll('.c4-col').forEach(cl=>cl.style.pointerEvents='none');
+  if(line){
+    line.forEach(([r,c])=>{
+      const cell = document.querySelector(`.c4-cell[data-r="${r}"][data-c="${c}"]`);
+      if(cell) cell.classList.add('win-cell');
+    });
+  }
+  EGL.confetti(150); EGL.beep('win');
+  const stage = document.getElementById('stage');
+  const banner = document.createElement('div');
+  banner.className = 'qcard';
+  banner.style.marginTop = '18px';
+  banner.innerHTML = teamIdx !== null
+    ? `<div style="font-size:3rem;">🏆</div><h2>${teams[teamIdx].emoji} ${EGL.escapeHtml(teams[teamIdx].name)} وصّل ٤ متتالية وفاز!</h2>
+       <div style="display:flex; gap:10px; justify-content:center; margin-top:16px;"><button class="btn btn-primary" onclick="location.reload()">🔁 لعب مرة أخرى</button><a class="btn btn-outline" href="../index.html">🏠 الألعاب الأخرى</a></div>`
+    : `<div style="font-size:3rem;">🤝</div><h2>تعادل! امتلأت اللوحة بلا فائز</h2>
+       <div style="display:flex; gap:10px; justify-content:center; margin-top:16px;"><button class="btn btn-primary" onclick="location.reload()">🔁 لعب مرة أخرى</button><a class="btn btn-outline" href="../index.html">🏠 الألعاب الأخرى</a></div>`;
+  stage.appendChild(banner);
+}
+
+init();
+</script>
+</body>
+</html>

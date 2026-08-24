@@ -1,0 +1,150 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>ركلات الترجيح — ساحة الصف</title>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>⚽</text></svg>">
+<link rel="stylesheet" href="../css/style.css">
+<style>
+  .goal-stage{ text-align:center; padding: 14px; }
+  .goal-emoji{ font-size:4.5rem; }
+  .goal-emoji.scored{ animation: scoregoal .6s ease; }
+  @keyframes scoregoal{ 0%{ transform: scale(.6); opacity:0;} 60%{ transform: scale(1.15);} 100%{ transform: scale(1); opacity:1;} }
+  .goal-emoji.saved{ animation: savedkick .5s ease; }
+  @keyframes savedkick{ 0%,100%{ transform: translateX(0);} 50%{ transform: translateX(-20px) rotate(-10deg);} }
+  .kicks-row{ display:flex; gap:6px; justify-content:center; margin: 6px 0 12px; }
+  .kick-dot{ width:22px; height:22px; border-radius:50%; background: var(--surface-2); display:flex; align-items:center; justify-content:center; font-size:.9rem; }
+  .score-strip{ display:flex; gap:20px; justify-content:center; font-weight:900; font-size:1.3rem; margin-bottom:8px; }
+</style>
+</head>
+<body>
+<nav class="topnav"><div class="container">
+  <a class="brand" href="../index.html"><span class="logo">🎲</span> ساحة الصف</a>
+  <div class="navlinks"><a href="../index.html">الرئيسية</a><a href="../index.html#games">الألعاب</a><a href="../questions.html">بنك الأسئلة</a></div>
+</div></nav>
+
+<div class="game-shell">
+  <div class="game-header container">
+    <h1>⚽ ركلات الترجيح</h1>
+    <p>فريقان يتبادلان ٥ ركلات ترجيح — أجيبوا صح لتسجّلوا هدفًا، وأخطئوا فيتصدى الحارس! الأكثر أهدافًا يفوز، وفي التعادل تبدأ الأشواط الإضافية.</p>
+  </div>
+  <div class="game-stage container" id="stage"></div>
+</div>
+
+<script src="../js/common.js"></script>
+<script>
+let teams, questions, qIdx, goals, kicksHistory, round, phase, activeI, ROUNDS_REG=5;
+
+function init(){
+  const stage = document.getElementById('stage');
+  stage.innerHTML = `<div class="empty-state"><div class="emoji">⚽</div><h3>هيّئ اللعبة</h3><p>لعبة ركلات ترجيح لفريقين فقط — ٥ ركلات لكل فريق، وأشواط إضافية عند التعادل.</p>
+    <button class="btn btn-primary" id="btn-setup">ابدأ الإعداد 🎮</button></div>`;
+  document.getElementById('btn-setup').addEventListener('click', openSetup);
+  openSetup();
+}
+function openSetup(){
+  EGL.openSetupModal({ title:'إعداد ركلات الترجيح', allowIndividual:false, allowTeams:true, needQuestions:true, qType:['mcq','tf'], minPlayers:2, maxPlayers:2 }, startGame);
+}
+
+function startGame(cfg){
+  const bank = EGL.getBank(cfg.bankId);
+  questions = EGL.shuffle(bank.questions.filter(q=>q.type==='mcq'||q.type==='tf'));
+  if(questions.length < 6){ EGL.toast('تحتاج هذه اللعبة ٦ أسئلة اختيار/صح-خطأ على الأقل'); return; }
+  if(cfg.players.length !== 2){ EGL.toast('ركلات الترجيح تحتاج فريقين بالضبط'); return; }
+  teams = cfg.players;
+  qIdx = 0;
+  goals = [0,0];
+  kicksHistory = [[],[]];
+  round = 1;
+  phase = 'regulation';
+  activeI = 0;
+  const stage = document.getElementById('stage');
+  stage.innerHTML = `<div class="score-strip" id="score-strip"></div><div id="kicks-area"></div><div class="goal-stage"><div class="goal-emoji" id="ball">⚽</div></div><div id="q-area"></div>`;
+  updateScoreStrip();
+  renderKicksRow();
+  nextKick();
+}
+
+function updateScoreStrip(){
+  document.getElementById('score-strip').innerHTML = `<span>${teams[0].emoji} ${EGL.escapeHtml(teams[0].name)}: ${goals[0]}</span><span>—</span><span>${teams[1].emoji} ${EGL.escapeHtml(teams[1].name)}: ${goals[1]}</span>`;
+}
+
+function renderKicksRow(){
+  const area = document.getElementById('kicks-area');
+  area.innerHTML = [0,1].map(ti=>`
+    <div class="kicks-row"><span style="font-weight:800; font-size:.8rem; margin-left:6px;">${teams[ti].emoji}</span>${kicksHistory[ti].map(k=>`<div class="kick-dot">${k?'⚽':'❌'}</div>`).join('')}</div>`).join('');
+}
+
+function nextKick(){
+  const label = phase === 'regulation' ? `ركلة ${kicksHistory[activeI].length+1} من ${ROUNDS_REG}` : `شوط إضافي`;
+  if(qIdx >= questions.length){ questions = EGL.shuffle(questions); qIdx = 0; }
+  const q = questions[qIdx++];
+  window._pkQ = q;
+  const area = document.getElementById('q-area');
+  area.innerHTML = `
+    <div class="qcard">
+      <div class="qmeta"><span class="badge">🥅 يركل: ${teams[activeI].emoji} ${EGL.escapeHtml(teams[activeI].name)}</span><span class="badge">${label}</span></div>
+      <div class="qtext">${EGL.escapeHtml(q.text)}</div>
+      <div class="options" id="opts">${q.options.map((o,oi)=>`<button class="option-btn" data-oi="${oi}">${EGL.escapeHtml(o)}</button>`).join('')}</div>
+    </div>`;
+  area.querySelectorAll('.option-btn').forEach(btn=>btn.addEventListener('click', ()=>takeKick(parseInt(btn.dataset.oi))));
+}
+
+function takeKick(oi){
+  const q = window._pkQ;
+  const opts = document.querySelectorAll('.option-btn');
+  opts.forEach(b=>b.disabled=true);
+  opts[oi].classList.add(oi===q.correctIndex?'correct':'wrong');
+  opts[q.correctIndex].classList.add('correct');
+  const ball = document.getElementById('ball');
+  const scored = oi === q.correctIndex;
+  kicksHistory[activeI].push(scored);
+  if(scored){ goals[activeI]++; ball.classList.remove('saved'); void ball.offsetWidth; ball.classList.add('scored'); EGL.beep('correct'); }
+  else { ball.classList.remove('scored'); void ball.offsetWidth; ball.classList.add('saved'); EGL.beep('wrong'); }
+  updateScoreStrip();
+  renderKicksRow();
+  setTimeout(()=>{
+    document.getElementById('q-area').innerHTML = '';
+    advanceTurn();
+  }, 1500);
+}
+
+function advanceTurn(){
+  if(activeI === 0){ activeI = 1; return nextKick(); }
+  // both teams have kicked this round
+  activeI = 0;
+  if(phase === 'regulation'){
+    if(round >= ROUNDS_REG){
+      if(goals[0] !== goals[1]) return finishGame();
+      phase = 'sudden'; round = 1;
+      EGL.toast('⚖️ تعادل! ندخل الأشواط الإضافية');
+      return nextKick();
+    }
+    round++;
+    return nextKick();
+  } else {
+    if(goals[0] !== goals[1]) return finishGame();
+    round++;
+    return nextKick();
+  }
+}
+
+function finishGame(){
+  EGL.confetti(150); EGL.beep('win');
+  const winnerI = goals[0] > goals[1] ? 0 : 1;
+  const area = document.getElementById('q-area');
+  area.innerHTML = `<div class="qcard">
+    <div style="font-size:3rem;">🏆</div>
+    <h2>${teams[winnerI].emoji} ${EGL.escapeHtml(teams[winnerI].name)} يفوز بركلات الترجيح ${goals[winnerI]}-${goals[1-winnerI]}!</h2>
+    <div style="display:flex; gap:10px; justify-content:center; margin-top:16px;">
+      <button class="btn btn-primary" onclick="location.reload()">🔁 مباراة جديدة</button>
+      <a class="btn btn-outline" href="../index.html">🏠 الألعاب الأخرى</a>
+    </div>
+  </div>`;
+}
+
+init();
+</script>
+</body>
+</html>

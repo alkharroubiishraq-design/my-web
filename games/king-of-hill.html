@@ -1,0 +1,213 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>ملك التل — ساحة الصف</title>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>⛰️</text></svg>">
+<link rel="stylesheet" href="../css/style.css">
+<style>
+  .hill-banner{ text-align:center; margin: 6px 0 14px; }
+  .hill-champ{ font-size:1.1rem; font-weight:900; color: var(--accent-2); }
+  .duel-zones{ display:grid; grid-template-columns: 1fr 1fr; gap:14px; width:100%; max-width:820px; margin: 10px auto; }
+  .duel-zone{ border-radius: var(--radius); padding: 14px 10px; text-align:center; box-shadow: var(--shadow); border:2px solid rgba(255,255,255,.08); }
+  .duel-zone .dname{ font-weight:900; font-size:1.05rem; margin-bottom:8px; }
+  .duel-zone .dopts{ display:grid; grid-template-columns: 1fr 1fr; gap:6px; }
+  .duel-zone .dopts button{ padding:10px 6px; border-radius:10px; border:none; background: var(--surface-2); color:#fff; font-family:inherit; font-weight:700; font-size:.82rem; cursor:pointer; }
+  .duel-zone .dopts button:disabled{ opacity:.4; }
+  .duel-zone .dopts button.correct{ background: rgba(43,224,138,.4); }
+  .duel-zone .dopts button.wrong{ background: rgba(255,92,92,.4); }
+  .duel-zone.answered-correct{ border-color: var(--success); box-shadow: 0 0 0 3px rgba(43,224,138,.25); }
+  .duel-zone.answered-wrong{ border-color: var(--danger); box-shadow: 0 0 0 3px rgba(255,92,92,.25); }
+  .duel-result{ font-size:.78rem; font-weight:800; min-height:16px; margin-top:4px; }
+  .vs-badge{ text-align:center; font-weight:900; color: var(--accent-2); margin: 4px 0; }
+</style>
+</head>
+<body>
+<nav class="topnav"><div class="container">
+  <a class="brand" href="../index.html"><span class="logo">🎲</span> ساحة الصف</a>
+  <div class="navlinks"><a href="../index.html">الرئيسية</a><a href="../index.html#games">الألعاب</a><a href="../questions.html">بنك الأسئلة</a></div>
+</div></nav>
+
+<div class="game-shell">
+  <div class="game-header container">
+    <h1>⛰️ ملك التل</h1>
+    <p>بطل التل الحالي يواجه تحديًا جديدًا كل جولة — الأسرع والأصح يبقى على القمة، ومن يخسر ينضم لطابور التحدي مجددًا!</p>
+  </div>
+  <div class="game-stage container" id="stage"></div>
+</div>
+
+<script src="../js/common.js"></script>
+<script>
+const ANSWER_TIME = 8;
+let players, questions, qIdx, queue, champI, challengerI, wins, streak, duelsLeft, duelAnswered, roundStart, timerInt, timeLeft;
+
+function init(){
+  const stage = document.getElementById('stage');
+  stage.innerHTML = `<div class="empty-state"><div class="emoji">⛰️</div><h3>هيّئ اللعبة</h3><p>سلسلة مبارزات متتالية على القمة — تحتاج ٣ لاعبين/فرق على الأقل.</p>
+    <button class="btn btn-primary" id="btn-setup">ابدأ الإعداد 🎮</button></div>`;
+  document.getElementById('btn-setup').addEventListener('click', openSetup);
+  openSetup();
+}
+function openSetup(){
+  EGL.openSetupModal({ title:'إعداد ملك التل', allowIndividual:true, allowTeams:true, needQuestions:true, qType:['mcq','tf'], minPlayers:3, maxPlayers:8 }, startGame);
+}
+
+function startGame(cfg){
+  const bank = EGL.getBank(cfg.bankId);
+  questions = EGL.shuffle(bank.questions.filter(q=>q.type==='mcq'||q.type==='tf'));
+  if(questions.length < 3){ EGL.toast('تحتاج هذه اللعبة ٣ أسئلة اختيار/صح-خطأ على الأقل'); return; }
+  qIdx = 0;
+  players = cfg.players;
+  wins = players.map(()=>0);
+  streak = players.map(()=>0);
+  queue = EGL.shuffle(players.map((_,i)=>i));
+  champI = queue.shift();
+  challengerI = queue.shift();
+  duelsLeft = players.length * 3;
+
+  const stage = document.getElementById('stage');
+  stage.innerHTML = `<div class="hill-banner" id="hill-banner"></div><div id="duel-area"></div>`;
+  updateBanner();
+  startDuel();
+}
+
+function updateBanner(){
+  document.getElementById('hill-banner').innerHTML = `<div class="hill-champ">👑 ملك التل الحالي: ${players[champI].emoji} ${EGL.escapeHtml(players[champI].name)} (سلسلة انتصارات: ${streak[champI]})</div>`;
+}
+
+function nextQuestion(){
+  if(qIdx >= questions.length){ questions = EGL.shuffle(questions); qIdx = 0; }
+  return questions[qIdx++];
+}
+
+function startDuel(){
+  clearInterval(timerInt);
+  const q = nextQuestion();
+  duelAnswered = [null, null];
+  const area = document.getElementById('duel-area');
+  area.innerHTML = `
+    <div class="qcard" style="margin-bottom:12px;">
+      <div class="vs-badge">👑 ${players[champI].emoji} ${EGL.escapeHtml(players[champI].name)} ⚔️ 🙋 ${players[challengerI].emoji} ${EGL.escapeHtml(players[challengerI].name)}</div>
+      <div class="qtext" id="shared-q" style="visibility:hidden;">${EGL.escapeHtml(q.text)}</div>
+      <div style="text-align:center;"><button class="btn btn-gold" id="btn-reveal">⚡ اعرض السؤال للمبارزين!</button></div>
+      <div class="timer-bar" style="margin-top:14px;"><div id="timer-fill" style="width:100%"></div></div>
+    </div>
+    <div class="duel-zones" id="duel-zones"></div>`;
+  const pair = [champI, challengerI];
+  document.getElementById('duel-zones').innerHTML = pair.map((pi,i)=>`
+    <div class="duel-zone" id="dzone-${i}">
+      <div class="dname">${players[pi].emoji} ${EGL.escapeHtml(players[pi].name)}</div>
+      <div class="dopts" id="dopts-${i}">${q.options.map((o,oi)=>`<button data-oi="${oi}" disabled>${EGL.escapeHtml(o)}</button>`).join('')}</div>
+      <div class="duel-result" id="dresult-${i}"></div>
+    </div>`).join('');
+  pair.forEach((pi,i)=>{
+    document.getElementById('dopts-'+i).querySelectorAll('button').forEach(btn=>{
+      btn.addEventListener('click', ()=> duelAnswer(i, parseInt(btn.dataset.oi), q));
+    });
+  });
+  document.getElementById('btn-reveal').addEventListener('click', ()=>startCountdown(q));
+}
+
+function startCountdown(q){
+  const btn = document.getElementById('btn-reveal');
+  btn.disabled = true;
+  let n = 3;
+  btn.textContent = `استعدّوا... ${n}`;
+  EGL.beep('tick');
+  const iv = setInterval(()=>{
+    n--;
+    if(n>0){ btn.textContent = `استعدّوا... ${n}`; EGL.beep('tick'); }
+    else { btn.textContent = 'الآن! ⚡'; EGL.beep('win'); clearInterval(iv); setTimeout(()=>openAnswering(q), 400); }
+  }, 600);
+}
+
+function openAnswering(q){
+  document.getElementById('shared-q').style.visibility = 'visible';
+  document.querySelectorAll('.dopts button').forEach(b=>b.disabled=false);
+  roundStart = performance.now();
+  timeLeft = ANSWER_TIME;
+  updateTimerBar();
+  timerInt = setInterval(()=>{
+    timeLeft--; updateTimerBar();
+    if(timeLeft<=0) resolveDuel(q);
+  }, 1000);
+}
+function updateTimerBar(){ const f=document.getElementById('timer-fill'); if(f) f.style.width=(timeLeft/ANSWER_TIME*100)+'%'; }
+
+function duelAnswer(i, oi, q){
+  if(duelAnswered[i] !== null) return;
+  const t = performance.now() - roundStart;
+  duelAnswered[i] = { oi, t };
+  document.getElementById('dopts-'+i).querySelectorAll('button').forEach(b=>b.disabled=true);
+  document.getElementById('dresult-'+i).textContent = `⏱ ${(t/1000).toFixed(2)} ث`;
+  EGL.beep('tick');
+  if(duelAnswered.every(a=>a!==null)) resolveDuel(q);
+}
+
+function resolveDuel(q){
+  clearInterval(timerInt);
+  document.querySelectorAll('.dopts button').forEach(b=>b.disabled=true);
+  [0,1].forEach(i=>{
+    const opts = document.getElementById('dopts-'+i).querySelectorAll('button');
+    opts[q.correctIndex].classList.add('correct');
+    const ans = duelAnswered[i];
+    const zone = document.getElementById('dzone-'+i);
+    if(ans && ans.oi === q.correctIndex) zone.classList.add('answered-correct');
+    else { if(ans) opts[ans.oi].classList.add('wrong'); zone.classList.add('answered-wrong'); }
+  });
+  const c0 = duelAnswered[0] && duelAnswered[0].oi === q.correctIndex;
+  const c1 = duelAnswered[1] && duelAnswered[1].oi === q.correctIndex;
+  let winnerSlot = -1;
+  if(c0 && c1) winnerSlot = duelAnswered[0].t <= duelAnswered[1].t ? 0 : 1;
+  else if(c0) winnerSlot = 0;
+  else if(c1) winnerSlot = 1;
+  else winnerSlot = Math.random() < 0.5 ? 0 : 1;
+
+  const pair = [champI, challengerI];
+  const winnerI = pair[winnerSlot];
+  const loserI = pair[1-winnerSlot];
+  wins[winnerI]++;
+  document.getElementById('dresult-'+winnerSlot).textContent = '🏆 يفوز!';
+  EGL.beep('correct'); EGL.confetti(40);
+
+  if(winnerI === champI){
+    streak[champI]++;
+    queue.push(challengerI);
+  } else {
+    streak[challengerI] = 1;
+    streak[champI] = 0;
+    queue.push(champI);
+    champI = challengerI;
+  }
+  duelsLeft--;
+  setTimeout(()=>{
+    if(duelsLeft <= 0) return finishGame();
+    challengerI = queue.shift();
+    updateBanner();
+    startDuel();
+  }, 2200);
+}
+
+function finishGame(){
+  EGL.confetti(160); EGL.beep('win');
+  const maxWins = Math.max(...wins);
+  const winners = players.map((_,i)=>i).filter(i=>wins[i]===maxWins);
+  const area = document.getElementById('duel-area');
+  const html = winners.length === 1
+    ? `<h2>${players[winners[0]].emoji} ${EGL.escapeHtml(players[winners[0]].name)} بطل ملك التل بـ ${maxWins} انتصارًا! 🏆</h2>`
+    : `<h2>🤝 تعادل على القمة بين ${winners.map(i=>players[i].name).join(' و')} (${maxWins} انتصارًا لكل منهم)!</h2>`;
+  area.innerHTML = `<div class="qcard">
+    <div style="font-size:3rem;">⛰️</div>
+    ${html}
+    <div style="display:flex; gap:10px; justify-content:center; margin-top:16px;">
+      <button class="btn btn-primary" onclick="location.reload()">🔁 لعب مرة أخرى</button>
+      <a class="btn btn-outline" href="../index.html">🏠 الألعاب الأخرى</a>
+    </div>
+  </div>`;
+}
+
+init();
+</script>
+</body>
+</html>

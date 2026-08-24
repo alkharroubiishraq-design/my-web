@@ -1,0 +1,114 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>البحث عن الكنز الصفي — ساحة الصف</title>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>🗺️</text></svg>">
+<link rel="stylesheet" href="../css/style.css">
+<style>
+  .th-trail{ display:flex; justify-content:center; gap:8px; margin: 16px auto; flex-wrap:wrap; max-width:640px; }
+  .th-wp{ width:52px; height:52px; border-radius:50%; background: var(--surface-2); display:flex; align-items:center; justify-content:center; font-size:1.5rem; border:3px solid transparent; opacity:.4; }
+  .th-wp.found{ opacity:1; border-color: var(--success); background: rgba(43,224,138,.2); }
+  .th-wp.current{ opacity:1; border-color: var(--accent-2); box-shadow: 0 0 0 4px rgba(255,210,63,.25); }
+</style>
+</head>
+<body>
+<nav class="topnav"><div class="container">
+  <a class="brand" href="../index.html"><span class="logo">🎲</span> ساحة الصف</a>
+  <div class="navlinks"><a href="../index.html">الرئيسية</a><a href="../index.html#games">الألعاب</a><a href="../questions.html">بنك الأسئلة</a></div>
+</div></nav>
+
+<div class="game-shell">
+  <div class="game-header container">
+    <h1>🗺️ البحث عن الكنز الصفي</h1>
+    <p>سلسلة ألغاز مترابطة تقود خطوة بخطوة نحو الكنز — كل إجابة صحيحة تكشف محطة جديدة على الخريطة!</p>
+  </div>
+  <div class="game-stage container" id="stage"></div>
+</div>
+
+<script src="../js/common.js"></script>
+<script>
+const WAYPOINTS = ['🏖️','🌴','⛰️','🌋','🏜️','💎'];
+let players, activeI, questions, qIdx, wpIdx;
+
+function init(){
+  const stage = document.getElementById('stage');
+  stage.innerHTML = `<div class="empty-state"><div class="emoji">🗺️</div><h3>هيّئ اللعبة</h3><p>يعمل الصف كفريق واحد ليجتاز المحطات ويصل للكنز — أي بنك أسئلة يصلح.</p>
+    <button class="btn btn-primary" id="btn-setup">ابدأ الإعداد 🎮</button></div>`;
+  document.getElementById('btn-setup').addEventListener('click', openSetup);
+  openSetup();
+}
+function openSetup(){
+  EGL.openSetupModal({ title:'إعداد البحث عن الكنز', allowIndividual:true, allowTeams:true, needQuestions:true, qType:['mcq','tf'], minPlayers:1 }, startGame);
+}
+
+function startGame(cfg){
+  const bank = EGL.getBank(cfg.bankId);
+  questions = EGL.shuffle(bank.questions.filter(q=>q.type==='mcq'||q.type==='tf'));
+  if(!questions.length){ EGL.toast('لا توجد أسئلة اختيار/صح-خطأ في هذا البنك'); return; }
+  qIdx = 0;
+  players = cfg.players;
+  activeI = 0;
+  wpIdx = 0;
+  const stage = document.getElementById('stage');
+  stage.innerHTML = `<div class="th-trail" id="trail"></div><div id="q-area"></div>`;
+  renderTrail();
+  renderQuestion();
+}
+
+function renderTrail(){
+  document.getElementById('trail').innerHTML = WAYPOINTS.map((w,i)=>`
+    <div class="th-wp ${i<wpIdx?'found':''} ${i===wpIdx?'current':''}">${i<wpIdx ? '✅' : w}</div>`).join('');
+}
+
+function renderQuestion(){
+  if(qIdx >= questions.length){ questions = EGL.shuffle(questions); qIdx = 0; }
+  const q = questions[qIdx];
+  const area = document.getElementById('q-area');
+  area.innerHTML = `
+    <div class="qcard">
+      <div class="qmeta"><span class="badge">🧭 المحطة ${wpIdx+1} من ${WAYPOINTS.length}</span><span class="badge">دور: ${EGL.escapeHtml(players[activeI].name)}</span></div>
+      <div class="qtext">${EGL.escapeHtml(q.text)}</div>
+      <div class="options" id="opts">${q.options.map((o,i)=>`<button class="option-btn" data-i="${i}">${EGL.escapeHtml(o)}</button>`).join('')}</div>
+    </div>`;
+  area.querySelectorAll('.option-btn').forEach(btn=>btn.addEventListener('click', ()=>answer(parseInt(btn.dataset.i), q)));
+}
+
+function answer(i, q){
+  const opts = document.querySelectorAll('.option-btn');
+  opts.forEach(b=>b.disabled=true);
+  opts[i].classList.add(i===q.correctIndex?'correct':'wrong');
+  opts[q.correctIndex].classList.add('correct');
+  if(i === q.correctIndex){
+    EGL.beep('correct'); EGL.confetti(30);
+    wpIdx++;
+    renderTrail();
+    if(wpIdx >= WAYPOINTS.length){ setTimeout(finishHunt, 1200); return; }
+  } else {
+    EGL.beep('wrong');
+    EGL.toast('❌ ليست صحيحة — الدور ينتقل لمحاولة أخرى بنفس المحطة');
+  }
+  qIdx++;
+  activeI = (activeI+1) % players.length;
+  setTimeout(renderQuestion, 1400);
+}
+
+function finishHunt(){
+  EGL.confetti(160); EGL.beep('win');
+  const stage = document.getElementById('stage');
+  stage.innerHTML = `<div class="qcard">
+    <div style="font-size:3.5rem;">💎</div>
+    <h2>وصلتم إلى الكنز! 🎉</h2>
+    <p class="hint">عمل جماعي رائع — كل الصف شارك في الوصول لهذه اللحظة.</p>
+    <div style="display:flex; gap:10px; justify-content:center; margin-top:16px;">
+      <button class="btn btn-primary" onclick="location.reload()">🔁 رحلة جديدة</button>
+      <a class="btn btn-outline" href="../index.html">🏠 الألعاب الأخرى</a>
+    </div>
+  </div>`;
+}
+
+init();
+</script>
+</body>
+</html>

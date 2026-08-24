@@ -1,0 +1,137 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>سباق التتابع — ساحة الصف</title>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>🏃</text></svg>">
+<link rel="stylesheet" href="../css/style.css">
+<style>
+  .track-wrap{ width:100%; max-width:820px; margin: 6px auto 26px; display:flex; flex-direction:column; gap:16px; }
+  .lane{ position:relative; background: repeating-linear-gradient(90deg, var(--surface-2) 0 40px, var(--bg-soft) 40px 80px); border-radius:14px; height:56px; border:1px solid rgba(255,255,255,.1); overflow:hidden; }
+  .lane::after{ content:'🏁'; position:absolute; left:6px; top:50%; transform:translateY(-50%); font-size:1.6rem; }
+  .lane-name{ position:absolute; right:8px; top:-26px; font-weight:800; font-size:.85rem; color: var(--text-dim); }
+  .lane-streak{ position:absolute; left:8px; top:-26px; font-weight:800; font-size:.78rem; color: var(--accent-2); }
+  .token{ position:absolute; top:50%; transform:translate(50%,-50%); font-size:1.8rem; transition: right 1s cubic-bezier(.2,.9,.3,1); right:95%; z-index:3; }
+</style>
+</head>
+<body>
+<nav class="topnav"><div class="container">
+  <a class="brand" href="../index.html"><span class="logo">🎲</span> ساحة الصف</a>
+  <div class="navlinks"><a href="../index.html">الرئيسية</a><a href="../index.html#games">الألعاب</a><a href="../questions.html">بنك الأسئلة</a></div>
+</div></nav>
+
+<div class="game-shell">
+  <div class="game-header container">
+    <h1>🏃 سباق التتابع</h1>
+    <p>كل فريق يجيب بالتناوب — الإجابات المتتالية الصحيحة تبني "زخمًا" يزيد سرعتكم، وأي خطأ يصفّر الزخم!</p>
+  </div>
+  <div class="game-stage container" id="stage"></div>
+</div>
+
+<script src="../js/common.js"></script>
+<script>
+const TRACK = 30;
+let teams, progress, streak, questions, qIdx, turnIdx;
+
+function init(){
+  const stage = document.getElementById('stage');
+  stage.innerHTML = `<div class="empty-state"><div class="emoji">🏃</div><h3>هيّئ اللعبة</h3><p>فريقان أو أكثر يتناوبون الإجابة لبناء زخم متتالٍ والوصول لخط النهاية أولًا.</p>
+    <button class="btn btn-primary" id="btn-setup">ابدأ الإعداد 🎮</button></div>`;
+  document.getElementById('btn-setup').addEventListener('click', openSetup);
+  openSetup();
+}
+function openSetup(){
+  EGL.openSetupModal({ title:'إعداد سباق التتابع', allowIndividual:false, allowTeams:true, needQuestions:true, qType:['mcq','tf'], minPlayers:2, maxPlayers:4 }, startGame);
+}
+
+function startGame(cfg){
+  const bank = EGL.getBank(cfg.bankId);
+  questions = EGL.shuffle(bank.questions.filter(q=>q.type==='mcq'||q.type==='tf'));
+  if(!questions.length){ EGL.toast('لا توجد أسئلة اختيار/صح-خطأ في هذا البنك'); return; }
+  qIdx = 0;
+  teams = cfg.players;
+  progress = teams.map(()=>0);
+  streak = teams.map(()=>0);
+  turnIdx = 0;
+
+  const stage = document.getElementById('stage');
+  stage.innerHTML = `<div class="track-wrap" id="track-wrap"></div><div id="q-area" style="width:100%;"></div>`;
+  const trackWrap = document.getElementById('track-wrap');
+  trackWrap.innerHTML = teams.map((t,i)=>`
+    <div style="position:relative; margin-top:24px;">
+      <div class="lane-name">${t.emoji} ${EGL.escapeHtml(t.name)}</div>
+      <div class="lane-streak" id="streak-${i}"></div>
+      <div class="lane" id="lane-${i}"><div class="token" id="token-${i}">${t.emoji}</div></div>
+    </div>`).join('');
+  updateStreakLabels();
+  renderQuestion();
+}
+
+function updateStreakLabels(){
+  teams.forEach((_,i)=>{
+    const el = document.getElementById('streak-'+i);
+    if(el) el.textContent = streak[i] > 0 ? `🔥 زخم ×${streak[i]}` : '';
+  });
+}
+
+function renderQuestion(){
+  const q = questions[qIdx];
+  const area = document.getElementById('q-area');
+  area.innerHTML = `
+    <div class="qcard">
+      <div class="qmeta"><span class="badge">🎯 دور: ${teams[turnIdx].emoji} ${EGL.escapeHtml(teams[turnIdx].name)}</span><span class="badge">${EGL.diffLabel(q.difficulty)}</span></div>
+      <div class="qtext">${EGL.escapeHtml(q.text)}</div>
+      <div class="options" id="opts">${q.options.map((o,i)=>`<button class="option-btn" data-i="${i}">${EGL.escapeHtml(o)}</button>`).join('')}</div>
+    </div>`;
+  area.querySelectorAll('.option-btn').forEach(btn=>btn.addEventListener('click', ()=>answer(parseInt(btn.dataset.i), q)));
+}
+
+function answer(i, q){
+  const opts = document.querySelectorAll('.option-btn');
+  opts.forEach(b=>b.disabled=true);
+  opts[i].classList.add(i===q.correctIndex?'correct':'wrong');
+  opts[q.correctIndex].classList.add('correct');
+  if(i === q.correctIndex){
+    streak[turnIdx]++;
+    const move = Math.min(6, 2 + streak[turnIdx]);
+    progress[turnIdx] = Math.min(TRACK, progress[turnIdx] + move);
+    EGL.beep('correct');
+    if(streak[turnIdx] >= 3) EGL.toast(`🔥 ${teams[turnIdx].name} في زخم متواصل!`);
+    moveToken(turnIdx);
+  } else {
+    streak[turnIdx] = 0;
+    EGL.beep('wrong');
+  }
+  updateStreakLabels();
+  setTimeout(()=>{
+    if(progress[turnIdx] >= TRACK){ return finishRace(turnIdx); }
+    qIdx = (qIdx+1) % questions.length;
+    turnIdx = (turnIdx+1) % teams.length;
+    renderQuestion();
+  }, 1400);
+}
+
+function moveToken(i){
+  const token = document.getElementById('token-'+i);
+  const pct = 8 + (progress[i]/TRACK) * 88;
+  token.style.right = pct + '%';
+}
+
+function finishRace(winnerI){
+  EGL.confetti(150); EGL.beep('win');
+  const area = document.getElementById('q-area');
+  area.innerHTML = `<div class="qcard">
+    <div style="font-size:3rem;">🏆</div>
+    <h2>${teams[winnerI].emoji} ${EGL.escapeHtml(teams[winnerI].name)} يفوز بسباق التتابع!</h2>
+    <div style="display:flex; gap:10px; justify-content:center; margin-top:16px;">
+      <button class="btn btn-primary" onclick="location.reload()">🔁 سباق جديد</button>
+      <a class="btn btn-outline" href="../index.html">🏠 الألعاب الأخرى</a>
+    </div>
+  </div>`;
+}
+
+init();
+</script>
+</body>
+</html>
