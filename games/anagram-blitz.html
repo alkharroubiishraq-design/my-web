@@ -1,0 +1,140 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>خلطة الحروف السريعة — ساحة الصف</title>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>🔀</text></svg>">
+<link rel="stylesheet" href="../css/style.css">
+<style>
+  .scrambled-word{ text-align:center; font-size:2.2rem; font-weight:900; letter-spacing:10px; color: var(--accent-2); margin: 18px 0; }
+  .blitz-input-row{ display:flex; gap:8px; max-width:420px; margin: 0 auto; }
+  .blitz-input-row input{ flex:1; padding:14px; border-radius:10px; border:none; background: var(--surface-2); color:#fff; font-family:inherit; font-weight:800; text-align:center; font-size:1.1rem; }
+  .solved-count{ text-align:center; font-size:1.2rem; font-weight:900; margin-bottom:6px; color: var(--accent-2); }
+</style>
+</head>
+<body>
+<nav class="topnav"><div class="container">
+  <a class="brand" href="../index.html"><span class="logo">🎲</span> ساحة الصف</a>
+  <div class="navlinks"><a href="../index.html">الرئيسية</a><a href="../index.html#games">الألعاب</a><a href="../questions.html">بنك الأسئلة</a></div>
+</div></nav>
+
+<div class="game-shell">
+  <div class="game-header container">
+    <h1>🔀 خلطة الحروف السريعة</h1>
+    <p>فكّوا أكبر عدد من الكلمات المبعثرة قبل نفاد الوقت — كل كلمة صحيحة تنقلكم فورًا للتالية!</p>
+  </div>
+  <div class="game-stage container" id="stage"></div>
+</div>
+
+<script src="../js/common.js"></script>
+<script>
+const TURN_TIME = 60;
+let sb, players, activeI, pool, poolIdx, solvedCount, timerInt, timeLeft, curWord, curScrambled;
+
+function init(){
+  const stage = document.getElementById('stage');
+  stage.innerHTML = `<div class="empty-state"><div class="emoji">🔀</div><h3>هيّئ اللعبة</h3><p>تحتاج بنك أسئلة فيه إجابات نصية قصيرة (كلمات).</p>
+    <button class="btn btn-primary" id="btn-setup">ابدأ الإعداد 🎮</button></div>`;
+  document.getElementById('btn-setup').addEventListener('click', openSetup);
+  openSetup();
+}
+function openSetup(){
+  EGL.openSetupModal({ title:'إعداد خلطة الحروف السريعة', allowIndividual:true, allowTeams:true, needQuestions:true }, startGame);
+}
+
+function normalize(s){ return (s||'').trim().toLowerCase().replace(/[إأآا]/g,'ا').replace(/ة/g,'ه').replace(/\s+/g,''); }
+
+function startGame(cfg){
+  const bank = EGL.getBank(cfg.bankId);
+  const eligible = bank.questions.filter(q => q.answerText && q.answerText.trim().length >= 3 && q.answerText.trim().length <= 10 && !q.answerText.includes(' '));
+  if(eligible.length < 5){ EGL.toast('تحتاج هذه اللعبة ٥ كلمات مفردة قصيرة على الأقل (بدون مسافات) في الإجابات النصية'); return; }
+  pool = EGL.shuffle(eligible);
+  poolIdx = 0;
+  players = cfg.players;
+  activeI = 0;
+  const stage = document.getElementById('stage');
+  stage.innerHTML = `<div id="sb-wrap" class="scoreboard"></div><div id="round-info"></div>`;
+  sb = new EGL.Scoreboard(document.getElementById('sb-wrap'), players);
+  startTurn();
+}
+
+function startTurn(){
+  clearInterval(timerInt);
+  sb.setActive(activeI);
+  solvedCount = 0;
+  timeLeft = TURN_TIME;
+  const area = document.getElementById('round-info');
+  area.innerHTML = `
+    <p class="hint" style="text-align:center;">دور: <strong style="color:var(--accent-2)">${players[activeI].emoji} ${EGL.escapeHtml(players[activeI].name)}</strong></p>
+    <div class="timer-bar"><div id="timer-fill" style="width:100%"></div></div>
+    <div class="solved-count" id="solved-count">✅ حُلّت: 0</div>
+    <div class="scrambled-word" id="scrambled-word"></div>
+    <div class="blitz-input-row">
+      <input type="text" id="guess-input" placeholder="اكتب الكلمة الصحيحة...">
+      <button class="btn btn-accent" id="btn-submit">✅</button>
+    </div>`;
+  document.getElementById('btn-submit').addEventListener('click', submitGuess);
+  document.getElementById('guess-input').addEventListener('keydown', e=>{ if(e.key==='Enter') submitGuess(); });
+  nextWord();
+  timerInt = setInterval(()=>{
+    timeLeft--;
+    const fill = document.getElementById('timer-fill');
+    if(fill) fill.style.width = (timeLeft/TURN_TIME*100)+'%';
+    if(timeLeft<=0) endTurn();
+  }, 1000);
+}
+
+function nextWord(){
+  if(poolIdx >= pool.length){ pool = EGL.shuffle(pool); poolIdx = 0; }
+  curWord = pool[poolIdx++].answerText.trim();
+  curScrambled = EGL.scrambleWord(curWord).join('');
+  document.getElementById('scrambled-word').textContent = curScrambled;
+  const inp = document.getElementById('guess-input');
+  if(inp){ inp.value = ''; inp.focus(); }
+}
+
+function submitGuess(){
+  const inp = document.getElementById('guess-input');
+  if(!inp || !inp.value.trim()) return;
+  if(normalize(inp.value) === normalize(curWord)){
+    solvedCount++;
+    sb.addScore(activeI, 5);
+    document.getElementById('solved-count').textContent = `✅ حُلّت: ${solvedCount}`;
+    EGL.beep('correct'); EGL.confetti(20);
+    nextWord();
+  } else {
+    EGL.beep('wrong');
+    inp.style.background = 'rgba(255,92,92,.3)';
+    setTimeout(()=>{ if(inp) inp.style.background=''; }, 300);
+  }
+}
+
+function endTurn(){
+  clearInterval(timerInt);
+  EGL.toast(`⏱ انتهى الوقت! ${players[activeI].name} حلّ ${solvedCount} كلمة`);
+  activeI++;
+  if(activeI >= players.length){ setTimeout(showResults, 1200); return; }
+  setTimeout(startTurn, 1200);
+}
+
+function showResults(){
+  EGL.confetti(100); EGL.beep('win');
+  const ranking = sb.ranking();
+  const stage = document.getElementById('stage');
+  stage.innerHTML = `<div class="qcard">
+    <div style="font-size:3rem;">🏆</div><h2>انتهت الجولات!</h2>
+    <div class="scoreboard" style="justify-content:center;">
+      ${ranking.map((p,r)=>`<div class="player-chip ${r===0?'active':''}"><div style="font-size:1.4rem;">${r===0?'🥇':r===1?'🥈':r===2?'🥉':p.emoji}</div><div class="pname">${EGL.escapeHtml(p.name)}</div><div class="pscore">${p.score}</div></div>`).join('')}
+    </div>
+    <div style="display:flex; gap:10px; justify-content:center; margin-top:16px;">
+      <button class="btn btn-primary" onclick="location.reload()">🔁 لعب مرة أخرى</button>
+      <a class="btn btn-outline" href="../index.html">🏠 الألعاب الأخرى</a>
+    </div>
+  </div>`;
+}
+
+init();
+</script>
+</body>
+</html>

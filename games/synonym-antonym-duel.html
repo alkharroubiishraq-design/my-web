@@ -1,0 +1,203 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>مبارزة المرادفات والأضداد — ساحة الصف</title>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>⚔️</text></svg>">
+<link rel="stylesheet" href="../css/style.css">
+<style>
+  .zones{ display:grid; gap:14px; width:100%; max-width:940px; margin: 10px auto; }
+  .zones.z2{ grid-template-columns: 1fr 1fr; }
+  .zones.z3{ grid-template-columns: repeat(3, 1fr); }
+  .zones.z4{ grid-template-columns: 1fr 1fr; }
+  .zone{ border-radius: var(--radius); padding: 14px 10px; text-align:center; box-shadow: var(--shadow); border:2px solid rgba(255,255,255,.08); }
+  .zone .zname{ font-weight:900; font-size:1rem; }
+  .zone .zscore{ font-size:1.3rem; font-weight:900; color: var(--accent-2); margin-bottom:8px; }
+  .zone .zopts{ display:grid; grid-template-columns: 1fr 1fr; gap:6px; }
+  .zone .zopts button{ padding:10px 6px; border-radius:10px; border:none; background: var(--surface-2); color:#fff; font-family:inherit; font-weight:700; font-size:.82rem; cursor:pointer; }
+  .zone .zopts button:disabled{ opacity:.4; }
+  .zone .zopts button.correct{ background: rgba(43,224,138,.4); }
+  .zone .zopts button.wrong{ background: rgba(255,92,92,.4); }
+  .zone.answered-correct{ border-color: var(--success); box-shadow: 0 0 0 3px rgba(43,224,138,.25); }
+  .zone.answered-wrong{ border-color: var(--danger); box-shadow: 0 0 0 3px rgba(255,92,92,.25); }
+  .zone .result-tag{ font-size:.78rem; font-weight:800; min-height:16px; margin-top:4px; }
+  .countdown-overlay{ position:fixed; inset:0; background: rgba(5,6,20,.88); display:flex; align-items:center; justify-content:center; z-index:250; }
+  .countdown-num{ font-size: 9rem; font-weight:900; color: var(--accent-2); text-shadow: 0 0 40px rgba(255,210,63,.6); }
+</style>
+</head>
+<body>
+<nav class="topnav"><div class="container">
+  <a class="brand" href="../index.html"><span class="logo">🎲</span> ساحة الصف</a>
+  <div class="navlinks"><a href="../index.html">الرئيسية</a><a href="../index.html#games">الألعاب</a><a href="../questions.html">بنك الأسئلة</a></div>
+</div></nav>
+
+<div class="game-shell">
+  <div class="game-header container">
+    <h1>⚔️ مبارزة المرادفات والأضداد</h1>
+    <p>سؤال مرادف أو ضد يظهر للجميع بنفس اللحظة — كل فريق يجيب في منطقته الخاصة، والأسرع والأصح يربح النقاط الأعلى!</p>
+  </div>
+  <div class="game-stage container" id="stage"></div>
+</div>
+
+<script src="../js/common.js"></script>
+<script>
+const ANSWER_TIME = 8;
+let players, scores, questions, qIdx, roundStart, zoneAnswered, timerInt, timeLeft;
+
+function init(){
+  const stage = document.getElementById('stage');
+  stage.innerHTML = `<div class="empty-state"><div class="emoji">⚔️</div><h3>هيّئ اللعبة</h3><p>تحتاج بنك أسئلة مرادفات/أضداد (اختيار من متعدد) — 2-4 فرق تجيب بنفس اللحظة.</p>
+    <button class="btn btn-primary" id="btn-setup">ابدأ الإعداد 🎮</button></div>`;
+  document.getElementById('btn-setup').addEventListener('click', openSetup);
+  openSetup();
+}
+function openSetup(){
+  EGL.openSetupModal({ title:'إعداد مبارزة المرادفات والأضداد', allowIndividual:false, allowTeams:true, needQuestions:true, qType:['mcq'], minPlayers:2, maxPlayers:4 }, startGame);
+}
+
+function startGame(cfg){
+  const bank = EGL.getBank(cfg.bankId);
+  questions = EGL.shuffle(bank.questions.filter(q=>q.type==='mcq')).slice(0, 10);
+  if(!questions.length){ EGL.toast('لا توجد أسئلة اختيار من متعدد في هذا البنك'); return; }
+  players = cfg.players;
+  scores = players.map(()=>0);
+  qIdx = 0;
+  const stage = document.getElementById('stage');
+  stage.innerHTML = `<div id="progress-badge" class="badge" style="display:block; text-align:center; margin-bottom:10px;"></div><div id="game-area"></div>`;
+  nextQuestion();
+}
+
+function nextQuestion(){
+  if(qIdx >= questions.length){ showResults(); return; }
+  document.getElementById('progress-badge').textContent = `⚔️ سؤال ${qIdx+1} / ${questions.length}`;
+  renderQuestion();
+}
+
+function renderQuestion(){
+  clearInterval(timerInt);
+  zoneAnswered = players.map(()=>null);
+  const q = questions[qIdx];
+  const zClass = players.length === 3 ? 'z3' : (players.length === 4 ? 'z4' : 'z2');
+  const area = document.getElementById('game-area');
+  area.innerHTML = `
+    <div class="qcard" style="margin-bottom:16px;">
+      <div class="qtext" id="shared-q" style="visibility:hidden;">${EGL.escapeHtml(q.text)}</div>
+      <div style="text-align:center;"><button class="btn btn-gold" id="btn-reveal">⚡ اعرض السؤال للجميع!</button></div>
+      <div class="timer-bar" style="margin-top:14px;"><div id="timer-fill" style="width:100%"></div></div>
+    </div>
+    <div class="zones ${zClass}" id="zones"></div>
+  `;
+  const colors = ['#7c5cff','#ff5c9e','#21e6c1','#f0a93f'];
+  const zonesEl = document.getElementById('zones');
+  zonesEl.innerHTML = players.map((p,i)=>`
+    <div class="zone" id="zone-${i}" style="background:linear-gradient(160deg, ${colors[i%colors.length]}55, var(--surface))">
+      <div class="zname">${p.emoji} ${EGL.escapeHtml(p.name)}</div>
+      <div class="zscore">${scores[i]}</div>
+      <div class="zopts" id="zopts-${i}">${q.options.map((o,oi)=>`<button data-oi="${oi}" disabled>${EGL.escapeHtml(o)}</button>`).join('')}</div>
+      <div class="result-tag" id="result-${i}"></div>
+    </div>
+  `).join('');
+  players.forEach((p,i)=>{
+    document.getElementById('zopts-'+i).querySelectorAll('button').forEach(btn=>{
+      btn.addEventListener('click', ()=> zoneAnswer(i, parseInt(btn.dataset.oi)));
+    });
+  });
+  document.getElementById('btn-reveal').addEventListener('click', startCountdown);
+}
+
+function startCountdown(){
+  document.getElementById('btn-reveal').disabled = true;
+  let n = 3;
+  const overlay = document.createElement('div');
+  overlay.className = 'countdown-overlay';
+  overlay.innerHTML = `<div class="countdown-num" id="cd-num">${n}</div>`;
+  document.body.appendChild(overlay);
+  EGL.beep('tick');
+  const iv = setInterval(()=>{
+    n--;
+    if(n>0){ overlay.querySelector('#cd-num').textContent = n; EGL.beep('tick'); }
+    else {
+      overlay.querySelector('#cd-num').textContent = 'الآن! ⚡';
+      overlay.querySelector('#cd-num').style.fontSize = '5rem';
+      EGL.beep('win');
+      clearInterval(iv);
+      setTimeout(()=>{ overlay.remove(); openAnswering(); }, 500);
+    }
+  }, 650);
+}
+
+function openAnswering(){
+  document.getElementById('shared-q').style.visibility = 'visible';
+  document.querySelectorAll('.zopts button').forEach(b=>b.disabled=false);
+  roundStart = performance.now();
+  timeLeft = ANSWER_TIME;
+  updateTimerBar();
+  timerInt = setInterval(()=>{
+    timeLeft--; updateTimerBar();
+    if(timeLeft<=0) resolveRound();
+  }, 1000);
+}
+function updateTimerBar(){
+  const fill = document.getElementById('timer-fill');
+  if(fill) fill.style.width = (timeLeft/ANSWER_TIME*100)+'%';
+}
+
+function zoneAnswer(i, oi){
+  if(zoneAnswered[i] !== null) return;
+  const t = performance.now() - roundStart;
+  zoneAnswered[i] = { oi, t };
+  document.getElementById('zopts-'+i).querySelectorAll('button').forEach(b=>b.disabled=true);
+  document.getElementById('result-'+i).textContent = `⏱ ${(t/1000).toFixed(2)} ث`;
+  EGL.beep('tick');
+  if(zoneAnswered.every(z => z !== null)) resolveRound();
+}
+
+function resolveRound(){
+  clearInterval(timerInt);
+  const q = questions[qIdx];
+  players.forEach((p,i)=>{
+    const zone = document.getElementById('zone-'+i);
+    const opts = document.getElementById('zopts-'+i).querySelectorAll('button');
+    opts.forEach(b=>b.disabled=true);
+    opts[q.correctIndex].classList.add('correct');
+    const ans = zoneAnswered[i];
+    const resultTag = document.getElementById('result-'+i);
+    if(!ans){ resultTag.textContent = '⏱ لم يُجب'; zone.classList.add('answered-wrong'); return; }
+    if(ans.oi === q.correctIndex){
+      const bonus = Math.round(Math.max(0, (ANSWER_TIME*1000 - ans.t)/(ANSWER_TIME*1000)) * (q.points||10) * 0.6);
+      scores[i] += (q.points||10) + bonus;
+      zone.classList.add('answered-correct');
+      resultTag.textContent = `✅ +${(q.points||10)+bonus}`;
+    } else {
+      opts[ans.oi].classList.add('wrong');
+      zone.classList.add('answered-wrong');
+      resultTag.textContent = `❌ خطأ`;
+    }
+    zone.querySelector('.zscore').textContent = scores[i];
+  });
+  EGL.beep(zoneAnswered.some(a=>a && a.oi===q.correctIndex) ? 'correct' : 'wrong');
+  EGL.confetti(30);
+  setTimeout(()=>{ qIdx++; nextQuestion(); }, 2200);
+}
+
+function showResults(){
+  EGL.confetti(100); EGL.beep('win');
+  const ranking = players.map((p,i)=>({...p, score:scores[i]})).sort((a,b)=>b.score-a.score);
+  const stage = document.getElementById('stage');
+  stage.innerHTML = `<div class="qcard">
+    <div style="font-size:3rem;">🏆</div><h2>انتهت المبارزة!</h2>
+    <div class="scoreboard" style="justify-content:center;">
+      ${ranking.map((p,r)=>`<div class="player-chip ${r===0?'active':''}"><div style="font-size:1.4rem;">${r===0?'🥇':r===1?'🥈':r===2?'🥉':p.emoji}</div><div class="pname">${EGL.escapeHtml(p.name)}</div><div class="pscore">${p.score}</div></div>`).join('')}
+    </div>
+    <div style="display:flex; gap:10px; justify-content:center; margin-top:16px;">
+      <button class="btn btn-primary" onclick="location.reload()">🔁 لعب مرة أخرى</button>
+      <a class="btn btn-outline" href="../index.html">🏠 الألعاب الأخرى</a>
+    </div>
+  </div>`;
+}
+
+init();
+</script>
+</body>
+</html>
