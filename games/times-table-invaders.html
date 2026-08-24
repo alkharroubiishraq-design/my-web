@@ -1,0 +1,155 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>غزاة جدول الضرب — ساحة الصف</title>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>👾</text></svg>">
+<link rel="stylesheet" href="../css/style.css">
+<style>
+  .invade-stage{ position:relative; height:220px; background: var(--surface-2); border-radius:14px; overflow:hidden; margin: 14px 0; }
+  .invader{ position:absolute; top:0; right:50%; transform:translateX(50%); font-weight:900; font-size:1.4rem; background: var(--surface); border-radius:10px; padding:8px 14px; transition: top linear; }
+  .ground-line{ position:absolute; bottom:0; left:0; right:0; height:4px; background: var(--danger); opacity:.5; }
+  .lives-row{ text-align:center; font-size:1.3rem; margin-bottom:6px; }
+</style>
+</head>
+<body>
+<nav class="topnav"><div class="container">
+  <a class="brand" href="../index.html"><span class="logo">🎲</span> ساحة الصف</a>
+  <div class="navlinks"><a href="../index.html">الرئيسية</a><a href="../index.html#games">الألعاب</a><a href="../questions.html">بنك الأسئلة</a></div>
+</div></nav>
+
+<div class="game-shell">
+  <div class="game-header container">
+    <h1>👾 غزاة جدول الضرب</h1>
+    <p>لا يحتاج بنك أسئلة! مسألة ضرب تسقط من الأعلى — اضغطوا الإجابة الصحيحة قبل أن تصل للأرض، وإلا خسرتم حياة!</p>
+  </div>
+  <div class="game-stage container" id="stage"></div>
+</div>
+
+<script src="../js/common.js"></script>
+<script>
+const FALL_TIME = 6000;
+let players, scores, lives, turnIdx, fallTimer, answered;
+
+function init(){
+  const stage = document.getElementById('stage');
+  stage.innerHTML = `<div class="empty-state"><div class="emoji">👾</div><h3>هيّئ اللعبة</h3><p>مسائل ضرب تُولَّد تلقائيًا — لا تحتاج بنك أسئلة إطلاقًا.</p>
+    <button class="btn btn-primary" id="btn-setup">ابدأ الإعداد 🎮</button></div>`;
+  document.getElementById('btn-setup').addEventListener('click', openSetup);
+  openSetup();
+}
+function openSetup(){
+  EGL.openSetupModal({ title:'إعداد غزاة جدول الضرب', allowIndividual:true, allowTeams:true, skipBank:true, minPlayers:1, maxPlayers:6 }, startGame);
+}
+
+function startGame(cfg){
+  players = cfg.players;
+  scores = players.map(()=>0);
+  lives = players.map(()=>3);
+  turnIdx = 0;
+  const stage = document.getElementById('stage');
+  stage.innerHTML = `<div id="sb-wrap" class="scoreboard"></div><div class="lives-row" id="lives-row"></div><div class="invade-stage" id="invade-stage"><div class="ground-line"></div></div><div id="opts-area"></div>`;
+  window._sb = new EGL.Scoreboard(document.getElementById('sb-wrap'), players);
+  updateLives();
+  spawnInvader();
+}
+
+function updateLives(){
+  document.getElementById('lives-row').textContent = `❤️ حياة ${EGL.escapeHtml(players[turnIdx].name)}: ${'💙'.repeat(Math.max(0,lives[turnIdx]))}`;
+}
+
+function genMulti(){
+  const a = 2 + Math.floor(Math.random()*10);
+  const b = 2 + Math.floor(Math.random()*10);
+  return { a, b, answer: a*b, text: `${a} × ${b}` };
+}
+
+function spawnInvader(){
+  window._sb.setActive(turnIdx);
+  updateLives();
+  answered = false;
+  const p = genMulti();
+  window._ttiP = p;
+  const wrongs = new Set();
+  while(wrongs.size < 3){
+    const delta = 1 + Math.floor(Math.random()*10);
+    const w = Math.random()<0.5 ? p.answer+delta : Math.max(0,p.answer-delta);
+    if(w !== p.answer) wrongs.add(w);
+  }
+  const options = EGL.shuffle([p.answer, ...wrongs]);
+  const stageEl = document.getElementById('invade-stage');
+  stageEl.querySelectorAll('.invader').forEach(el=>el.remove());
+  const inv = document.createElement('div');
+  inv.className = 'invader';
+  inv.id = 'invader-now';
+  inv.textContent = p.text + ' = ؟';
+  inv.style.top = '0px';
+  stageEl.appendChild(inv);
+  requestAnimationFrame(()=>{
+    inv.style.transition = `top ${FALL_TIME}ms linear`;
+    inv.style.top = (stageEl.clientHeight - 40) + 'px';
+  });
+  document.getElementById('opts-area').innerHTML = `<div class="options">${options.map(o=>`<button class="option-btn" data-o="${o}">${o}</button>`).join('')}</div>`;
+  document.querySelectorAll('.option-btn').forEach(btn=>btn.addEventListener('click', ()=>answer(parseInt(btn.dataset.o))));
+  fallTimer = setTimeout(()=>{ if(!answered) missInvader(); }, FALL_TIME);
+}
+
+function answer(val){
+  if(answered) return;
+  answered = true;
+  clearTimeout(fallTimer);
+  const p = window._ttiP;
+  document.querySelectorAll('.option-btn').forEach(b=>b.disabled=true);
+  if(val === p.answer){
+    scores[turnIdx] += 10;
+    window._sb.addScore(turnIdx, 10);
+    EGL.beep('correct'); EGL.confetti(30);
+    const inv = document.getElementById('invader-now');
+    if(inv) inv.remove();
+  } else {
+    EGL.beep('wrong');
+    missInvader(true);
+    return;
+  }
+  setTimeout(nextTurn, 900);
+}
+
+function missInvader(alreadyAnswered){
+  if(!alreadyAnswered) answered = true;
+  lives[turnIdx]--;
+  updateLives();
+  EGL.beep('wrong');
+  EGL.toast(`👾 وصل الغازي للأرض! خسر ${players[turnIdx].name} حياة`);
+  setTimeout(nextTurn, 900);
+}
+
+function nextTurn(){
+  if(lives[turnIdx] <= 0){
+    const stillIn = players.map((_,i)=>i).filter(i=>lives[i] > 0);
+    if(stillIn.length === 0) return finishGame();
+  }
+  do { turnIdx = (turnIdx+1) % players.length; } while(lives[turnIdx] <= 0);
+  spawnInvader();
+}
+
+function finishGame(){
+  EGL.confetti(120); EGL.beep('win');
+  const ranking = window._sb.ranking();
+  const stage = document.getElementById('stage');
+  stage.innerHTML = `<div class="qcard">
+    <div style="font-size:3rem;">🏆</div><h2>انتهت المعركة!</h2>
+    <div class="scoreboard" style="justify-content:center;">
+      ${ranking.map((p,r)=>`<div class="player-chip ${r===0?'active':''}"><div style="font-size:1.4rem;">${r===0?'🥇':r===1?'🥈':r===2?'🥉':p.emoji}</div><div class="pname">${EGL.escapeHtml(p.name)}</div><div class="pscore">${p.score}</div></div>`).join('')}
+    </div>
+    <div style="display:flex; gap:10px; justify-content:center; margin-top:16px;">
+      <button class="btn btn-primary" onclick="location.reload()">🔁 لعب مرة أخرى</button>
+      <a class="btn btn-outline" href="../index.html">🏠 الألعاب الأخرى</a>
+    </div>
+  </div>`;
+}
+
+init();
+</script>
+</body>
+</html>

@@ -1,0 +1,145 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>خزنة الأرقام — ساحة الصف</title>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>🔐</text></svg>">
+<link rel="stylesheet" href="../css/style.css">
+<style>
+  .vault-slots{ display:flex; gap:10px; justify-content:center; margin: 18px 0; }
+  .vault-digit{ width:56px; height:64px; border-radius:12px; background: var(--surface-2); display:flex; align-items:center; justify-content:center; font-size:1.8rem; font-weight:900; border:2px solid rgba(255,255,255,.1); }
+  .vault-digit.filled{ background: rgba(43,224,138,.25); border-color: var(--success); }
+  .mistakes-row{ text-align:center; margin-bottom:8px; font-size:1.2rem; }
+</style>
+</head>
+<body>
+<nav class="topnav"><div class="container">
+  <a class="brand" href="../index.html"><span class="logo">🎲</span> ساحة الصف</a>
+  <div class="navlinks"><a href="../index.html">الرئيسية</a><a href="../index.html#games">الألعاب</a><a href="../questions.html">بنك الأسئلة</a></div>
+</div></nav>
+
+<div class="game-shell">
+  <div class="game-header container">
+    <h1>🔐 خزنة الأرقام</h1>
+    <p>لا يحتاج بنك أسئلة! يعمل الصف معًا لحل ٤ مسائل حسابية وفتح خزنة الأرقام — لكن احذروا، ٥ أخطاء فقط تُفجّر الخزنة!</p>
+  </div>
+  <div class="game-stage container" id="stage"></div>
+</div>
+
+<script src="../js/common.js"></script>
+<script>
+const DIGITS = 4;
+const MAX_MISTAKES = 5;
+let players, activeI, digitIdx, mistakes, currentProblem;
+
+function init(){
+  const stage = document.getElementById('stage');
+  stage.innerHTML = `<div class="empty-state"><div class="emoji">🔐</div><h3>هيّئ اللعبة</h3><p>مسائل حسابية تُولَّد تلقائيًا — لا تحتاج بنك أسئلة إطلاقًا.</p>
+    <button class="btn btn-primary" id="btn-setup">ابدأ الإعداد 🎮</button></div>`;
+  document.getElementById('btn-setup').addEventListener('click', openSetup);
+  openSetup();
+}
+function openSetup(){
+  EGL.openSetupModal({ title:'إعداد خزنة الأرقام', allowIndividual:true, allowTeams:true, skipBank:true, minPlayers:1 }, startGame);
+}
+
+function startGame(cfg){
+  players = cfg.players;
+  activeI = 0;
+  digitIdx = 0;
+  mistakes = 0;
+  const stage = document.getElementById('stage');
+  stage.innerHTML = `
+    <div class="mistakes-row" id="mistakes-row"></div>
+    <div class="vault-slots" id="vault-slots"></div>
+    <div id="q-area"></div>`;
+  renderSlots();
+  updateMistakes();
+  renderProblem();
+}
+
+function renderSlots(){
+  document.getElementById('vault-slots').innerHTML = Array.from({length:DIGITS}, (_,i)=>`<div class="vault-digit ${i<digitIdx?'filled':''}">${i<digitIdx ? window._vaultDigits[i] : '❓'}</div>`).join('');
+}
+
+function updateMistakes(){
+  document.getElementById('mistakes-row').textContent = `💥 أخطاء: ${'❌'.repeat(mistakes)}${'⬜'.repeat(MAX_MISTAKES-mistakes)}`;
+}
+
+function genDigitProblem(){
+  const p = EGL.genMathProblem('medium');
+  const digit = Math.abs(p.answer) % 10;
+  return { ...p, digit };
+}
+
+function renderProblem(){
+  currentProblem = genDigitProblem();
+  window._vaultDigits = window._vaultDigits || [];
+  const area = document.getElementById('q-area');
+  const options = EGL.shuffle([currentProblem.digit, ...new Set(Array.from({length:3}, ()=>Math.floor(Math.random()*10)).filter(n=>n!==currentProblem.digit))].slice(0,4));
+  area.innerHTML = `
+    <div class="qcard">
+      <div class="qmeta"><span class="badge">🔢 الرمز ${digitIdx+1} من ${DIGITS}</span><span class="badge">دور: ${EGL.escapeHtml(players[activeI].name)}</span></div>
+      <p class="hint">احسبوا الناتج، ثم اختاروا خانة آحاده (الرقم الأخير):</p>
+      <div class="qtext">${EGL.escapeHtml(currentProblem.text)} = ؟</div>
+      <div class="options" id="opts">${options.map(o=>`<button class="option-btn" data-o="${o}">${o}</button>`).join('')}</div>
+    </div>`;
+  area.querySelectorAll('.option-btn').forEach(btn=>btn.addEventListener('click', ()=>answer(parseInt(btn.dataset.o))));
+}
+
+function answer(val){
+  const opts = document.querySelectorAll('.option-btn');
+  opts.forEach(b=>b.disabled=true);
+  const correctBtn = document.querySelector(`.option-btn[data-o="${currentProblem.digit}"]`);
+  if(correctBtn) correctBtn.classList.add('correct');
+  if(val === currentProblem.digit){
+    EGL.beep('correct'); EGL.confetti(30);
+    window._vaultDigits.push(currentProblem.digit);
+    digitIdx++;
+    renderSlots();
+    if(digitIdx >= DIGITS){ setTimeout(openVault, 1200); return; }
+  } else {
+    const wrongBtn = document.querySelector(`.option-btn[data-o="${val}"]`);
+    if(wrongBtn) wrongBtn.classList.add('wrong');
+    EGL.beep('wrong');
+    mistakes++;
+    updateMistakes();
+    if(mistakes >= MAX_MISTAKES){ setTimeout(explodeVault, 1200); return; }
+  }
+  activeI = (activeI+1) % players.length;
+  setTimeout(renderProblem, 1300);
+}
+
+function openVault(){
+  EGL.confetti(160); EGL.beep('win');
+  const stage = document.getElementById('stage');
+  stage.innerHTML = `<div class="qcard">
+    <div style="font-size:3.5rem;">🔓</div>
+    <h2>فتحتم الخزنة! الرمز كان: ${window._vaultDigits.join(' ')}</h2>
+    <p class="hint">عمل جماعي رائع بأقل من ${MAX_MISTAKES} أخطاء.</p>
+    <div style="display:flex; gap:10px; justify-content:center; margin-top:16px;">
+      <button class="btn btn-primary" onclick="location.reload()">🔁 خزنة جديدة</button>
+      <a class="btn btn-outline" href="../index.html">🏠 الألعاب الأخرى</a>
+    </div>
+  </div>`;
+}
+
+function explodeVault(){
+  EGL.beep('wrong');
+  const stage = document.getElementById('stage');
+  stage.innerHTML = `<div class="qcard">
+    <div style="font-size:3.5rem;">💥</div>
+    <h2>انفجرت الخزنة! نفدت المحاولات</h2>
+    <p class="hint">حاولوا مرة أخرى — التدريب يصنع الإتقان!</p>
+    <div style="display:flex; gap:10px; justify-content:center; margin-top:16px;">
+      <button class="btn btn-primary" onclick="location.reload()">🔁 حاول مجددًا</button>
+      <a class="btn btn-outline" href="../index.html">🏠 الألعاب الأخرى</a>
+    </div>
+  </div>`;
+}
+
+init();
+</script>
+</body>
+</html>

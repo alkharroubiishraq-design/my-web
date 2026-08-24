@@ -1,0 +1,125 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>القفز على خط الأعداد — ساحة الصف</title>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>🐇</text></svg>">
+<link rel="stylesheet" href="../css/style.css">
+<style>
+  .track-wrap{ width:100%; max-width:820px; margin: 6px auto 26px; display:flex; flex-direction:column; gap:16px; }
+  .lane{ position:relative; background: repeating-linear-gradient(90deg, var(--surface-2) 0 40px, var(--bg-soft) 40px 80px); border-radius:14px; height:56px; border:1px solid rgba(255,255,255,.1); overflow:hidden; }
+  .lane::after{ content:'🎯'; position:absolute; left:6px; top:50%; transform:translateY(-50%); font-size:1.6rem; }
+  .lane-name{ position:absolute; right:8px; top:-26px; font-weight:800; font-size:.85rem; color: var(--text-dim); }
+  .token{ position:absolute; top:50%; transform:translate(50%,-50%); font-size:1.8rem; transition: right 1s cubic-bezier(.2,.9,.3,1); right:95%; z-index:3; }
+  .statement-text{ font-size:1.5rem; font-weight:900; text-align:center; margin: 10px 0; }
+  .tf-buttons{ display:flex; gap:14px; justify-content:center; }
+</style>
+</head>
+<body>
+<nav class="topnav"><div class="container">
+  <a class="brand" href="../index.html"><span class="logo">🎲</span> ساحة الصف</a>
+  <div class="navlinks"><a href="../index.html">الرئيسية</a><a href="../index.html#games">الألعاب</a><a href="../questions.html">بنك الأسئلة</a></div>
+</div></nav>
+
+<div class="game-shell">
+  <div class="game-header container">
+    <h1>🐇 القفز على خط الأعداد</h1>
+    <p>لا يحتاج بنك أسئلة! هل المعادلة صحيحة أم خاطئة؟ احكموا بسرعة لتقفزوا للأمام على خط الأعداد وتصلوا للهدف أولًا.</p>
+  </div>
+  <div class="game-stage container" id="stage"></div>
+</div>
+
+<script src="../js/common.js"></script>
+<script>
+const TRACK = 20;
+let players, progress, turnIdx, currentStatement;
+
+function init(){
+  const stage = document.getElementById('stage');
+  stage.innerHTML = `<div class="empty-state"><div class="emoji">🐇</div><h3>هيّئ اللعبة</h3><p>معادلات صح/خطأ تُولَّد تلقائيًا — لا تحتاج بنك أسئلة إطلاقًا.</p>
+    <button class="btn btn-primary" id="btn-setup">ابدأ الإعداد 🎮</button></div>`;
+  document.getElementById('btn-setup').addEventListener('click', openSetup);
+  openSetup();
+}
+function openSetup(){
+  EGL.openSetupModal({ title:'إعداد القفز على خط الأعداد', allowIndividual:true, allowTeams:true, skipBank:true, minPlayers:2, maxPlayers:4 }, startGame);
+}
+
+function startGame(cfg){
+  players = cfg.players;
+  progress = players.map(()=>0);
+  turnIdx = 0;
+  const stage = document.getElementById('stage');
+  stage.innerHTML = `<div class="track-wrap" id="track-wrap"></div><div id="q-area" style="width:100%;"></div>`;
+  const trackWrap = document.getElementById('track-wrap');
+  trackWrap.innerHTML = players.map((p,i)=>`
+    <div style="position:relative; margin-top:22px;">
+      <div class="lane-name">${p.emoji} ${EGL.escapeHtml(p.name)}</div>
+      <div class="lane" id="lane-${i}"><div class="token" id="token-${i}">${p.emoji}</div></div>
+    </div>`).join('');
+  renderStatement();
+}
+
+function squarePct(sq){ return 8 + (sq/TRACK) * 88; }
+
+function renderStatement(){
+  currentStatement = EGL.genMathStatement('medium');
+  const area = document.getElementById('q-area');
+  area.innerHTML = `
+    <div class="qcard">
+      <div class="qmeta"><span class="badge">🎯 دور: ${players[turnIdx].emoji} ${EGL.escapeHtml(players[turnIdx].name)}</span></div>
+      <div class="statement-text">${EGL.escapeHtml(currentStatement.text)}</div>
+      <div class="tf-buttons">
+        <button class="option-btn" data-v="true">✅ صحيحة</button>
+        <button class="option-btn" data-v="false">❌ خاطئة</button>
+      </div>
+    </div>`;
+  area.querySelectorAll('.option-btn').forEach(btn=>btn.addEventListener('click', ()=>answer(btn.dataset.v === 'true')));
+}
+
+function answer(guess){
+  const opts = document.querySelectorAll('.option-btn');
+  opts.forEach(b=>b.disabled=true);
+  const correct = guess === currentStatement.isTrue;
+  const correctBtn = document.querySelector(`.option-btn[data-v="${currentStatement.isTrue}"]`);
+  if(correctBtn) correctBtn.classList.add('correct');
+  if(correct){
+    const jump = 1 + Math.floor(Math.random()*3);
+    progress[turnIdx] = Math.min(TRACK, progress[turnIdx] + jump);
+    EGL.beep('correct');
+    moveToken(turnIdx);
+  } else {
+    const wrongBtn = document.querySelector(`.option-btn[data-v="${guess}"]`);
+    if(wrongBtn) wrongBtn.classList.add('wrong');
+    EGL.beep('wrong');
+  }
+  setTimeout(()=>{
+    if(progress[turnIdx] >= TRACK){ return finishRace(turnIdx); }
+    turnIdx = (turnIdx+1) % players.length;
+    renderStatement();
+  }, 1400);
+}
+
+function moveToken(i){
+  const token = document.getElementById('token-'+i);
+  token.style.right = squarePct(progress[i]) + '%';
+}
+
+function finishRace(winnerI){
+  EGL.confetti(150); EGL.beep('win');
+  const area = document.getElementById('q-area');
+  area.innerHTML = `<div class="qcard">
+    <div style="font-size:3rem;">🏆</div>
+    <h2>${players[winnerI].emoji} ${EGL.escapeHtml(players[winnerI].name)} يصل للهدف أولًا!</h2>
+    <div style="display:flex; gap:10px; justify-content:center; margin-top:16px;">
+      <button class="btn btn-primary" onclick="location.reload()">🔁 سباق جديد</button>
+      <a class="btn btn-outline" href="../index.html">🏠 الألعاب الأخرى</a>
+    </div>
+  </div>`;
+}
+
+init();
+</script>
+</body>
+</html>
