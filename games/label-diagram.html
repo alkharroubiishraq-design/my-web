@@ -1,0 +1,129 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>سمّ الأجزاء — ساحة الصف</title>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>🏷️</text></svg>">
+<link rel="stylesheet" href="../css/style.css">
+<style>
+  .diagram-wrap{ position:relative; width:min(320px,90vw); height:340px; margin: 16px auto; background: var(--surface-2); border-radius:16px; }
+  .diagram-emoji{ position:absolute; font-size:3rem; transform: translate(-50%,-50%); pointer-events:none; }
+  .hotspot{ position:absolute; width:52px; height:52px; border-radius:50%; background: rgba(255,255,255,.12); border:3px dashed var(--text-dim); transform: translate(-50%,-50%); cursor:pointer; display:flex; align-items:center; justify-content:center; font-weight:900; font-size:.75rem; text-align:center; }
+  .hotspot.labeled{ background: rgba(43,224,138,.35); border-style:solid; border-color: var(--success); cursor:default; }
+  .hotspot.wrong-flash{ background: rgba(255,92,92,.4); border-color: var(--danger); }
+  .target-label{ text-align:center; font-size:1.3rem; font-weight:900; color: var(--accent-2); margin-bottom:6px; }
+</style>
+</head>
+<body>
+<nav class="topnav"><div class="container">
+  <a class="brand" href="../index.html"><span class="logo">🎲</span> ساحة الصف</a>
+  <div class="navlinks"><a href="../index.html">الرئيسية</a><a href="../index.html#games">الألعاب</a><a href="../questions.html">بنك الأسئلة</a></div>
+</div></nav>
+
+<div class="game-shell">
+  <div class="game-header container">
+    <h1>🏷️ سمّ الأجزاء</h1>
+    <p>لا يحتاج بنك أسئلة! انقروا على الموقع الصحيح للجزء المطلوب على الرسم التوضيحي!</p>
+  </div>
+  <div class="game-stage container" id="stage"></div>
+</div>
+
+<script src="../js/common.js"></script>
+<script>
+const DIAGRAMS = [
+  { title:'أجزاء النبات', bg:'🟫', hotspots: [
+      { name:'الزهرة', x:50, y:12, emoji:'🌸' },
+      { name:'الورقة', x:22, y:38, emoji:'🍃' },
+      { name:'الساق', x:50, y:55, emoji:'🌿' },
+      { name:'الثمرة', x:78, y:38, emoji:'🍎' },
+      { name:'الجذر', x:50, y:88, emoji:'🟤' },
+    ]
+  },
+  { title:'أجزاء جسم الإنسان', bg:'', hotspots: [
+      { name:'الرأس', x:50, y:12, emoji:'🧠' },
+      { name:'العين', x:50, y:24, emoji:'👁️' },
+      { name:'اليد', x:18, y:50, emoji:'✋' },
+      { name:'البطن', x:50, y:55, emoji:'🫃' },
+      { name:'القدم', x:50, y:90, emoji:'🦶' },
+    ]
+  },
+];
+let sb, players, activeI, diagram, queue, qi;
+
+function init(){
+  const stage = document.getElementById('stage');
+  stage.innerHTML = `<div class="empty-state"><div class="emoji">🏷️</div><h3>هيّئ اللعبة</h3><p>لا تحتاج بنك أسئلة — فقط أسماء اللاعبين، والرسوم التوضيحية جاهزة مسبقًا.</p>
+    <button class="btn btn-primary" id="btn-setup">ابدأ الإعداد 🎮</button></div>`;
+  document.getElementById('btn-setup').addEventListener('click', openSetup);
+  openSetup();
+}
+function openSetup(){
+  EGL.openSetupModal({ title:'إعداد سمّ الأجزاء', allowIndividual:true, allowTeams:true, skipBank:true, minPlayers:1, maxPlayers:6 }, startGame);
+}
+
+function startGame(cfg){
+  players = cfg.players;
+  activeI = 0;
+  diagram = EGL.pick(DIAGRAMS);
+  queue = EGL.shuffle(diagram.hotspots.map((h,i)=>i));
+  qi = 0;
+  const stage = document.getElementById('stage');
+  stage.innerHTML = `<div id="sb-wrap" class="scoreboard"></div><h3 style="text-align:center;">${EGL.escapeHtml(diagram.title)}</h3><div id="target-area"></div><div class="diagram-wrap" id="diagram"></div>`;
+  sb = new EGL.Scoreboard(document.getElementById('sb-wrap'), players);
+  renderDiagram();
+  nextTarget();
+}
+
+function renderDiagram(){
+  const wrap = document.getElementById('diagram');
+  wrap.innerHTML = diagram.hotspots.map((h,i)=>`<div class="hotspot" id="hs-${i}" data-i="${i}" style="right:${h.x}%; top:${h.y}%;">❓</div>`).join('');
+  document.querySelectorAll('.hotspot').forEach(el=>el.addEventListener('click', ()=>pickHotspot(parseInt(el.dataset.i))));
+}
+
+function nextTarget(){
+  if(qi >= queue.length){ return finishGame(); }
+  sb.setActive(activeI);
+  const h = diagram.hotspots[queue[qi]];
+  document.getElementById('target-area').innerHTML = `<div class="target-label">🎯 أين يقع: "${EGL.escapeHtml(h.name)}"؟ — دور ${EGL.escapeHtml(players[activeI].name)}</div>`;
+}
+
+function pickHotspot(i){
+  const el = document.getElementById('hs-'+i);
+  if(el.classList.contains('labeled')) return;
+  const targetIdx = queue[qi];
+  const h = diagram.hotspots[targetIdx];
+  if(i === targetIdx){
+    el.classList.add('labeled');
+    el.textContent = h.emoji;
+    sb.addScore(activeI, 10);
+    EGL.beep('correct'); EGL.confetti(30);
+    qi++;
+    setTimeout(()=>{ activeI = (activeI+1) % players.length; nextTarget(); }, 900);
+  } else {
+    el.classList.add('wrong-flash');
+    EGL.beep('wrong');
+    setTimeout(()=>el.classList.remove('wrong-flash'), 350);
+  }
+}
+
+function finishGame(){
+  EGL.confetti(120); EGL.beep('win');
+  const ranking = sb.ranking();
+  const stage = document.getElementById('stage');
+  stage.innerHTML = `<div class="qcard">
+    <div style="font-size:3rem;">🏆</div><h2>سمّيتم كل الأجزاء!</h2>
+    <div class="scoreboard" style="justify-content:center;">
+      ${ranking.map((p,r)=>`<div class="player-chip ${r===0?'active':''}"><div style="font-size:1.4rem;">${r===0?'🥇':r===1?'🥈':r===2?'🥉':p.emoji}</div><div class="pname">${EGL.escapeHtml(p.name)}</div><div class="pscore">${p.score}</div></div>`).join('')}
+    </div>
+    <div style="display:flex; gap:10px; justify-content:center; margin-top:16px;">
+      <button class="btn btn-primary" onclick="location.reload()">🔁 لعب مرة أخرى</button>
+      <a class="btn btn-outline" href="../index.html">🏠 الألعاب الأخرى</a>
+    </div>
+  </div>`;
+}
+
+init();
+</script>
+</body>
+</html>

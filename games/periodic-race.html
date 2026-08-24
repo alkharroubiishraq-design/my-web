@@ -1,0 +1,137 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>سباق الجدول الدوري — ساحة الصف</title>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>🧪</text></svg>">
+<link rel="stylesheet" href="../css/style.css">
+<style>
+  .track-wrap{ width:100%; max-width:820px; margin: 6px auto 26px; display:flex; flex-direction:column; gap:16px; }
+  .lane{ position:relative; background: repeating-linear-gradient(90deg, var(--surface-2) 0 40px, var(--bg-soft) 40px 80px); border-radius:14px; height:56px; border:1px solid rgba(255,255,255,.1); overflow:hidden; }
+  .lane::after{ content:'⚗️'; position:absolute; left:6px; top:50%; transform:translateY(-50%); font-size:1.6rem; }
+  .lane-name{ position:absolute; right:8px; top:-26px; font-weight:800; font-size:.85rem; color: var(--text-dim); }
+  .token{ position:absolute; top:50%; transform:translate(50%,-50%); font-size:1.8rem; transition: right 1s cubic-bezier(.2,.9,.3,1); right:95%; z-index:3; }
+  .element-symbol{ text-align:center; font-size:3.4rem; font-weight:900; color: var(--accent-2); margin: 10px 0; }
+  .element-number{ text-align:center; font-size:.85rem; color: var(--text-dim); margin-bottom:10px; }
+</style>
+</head>
+<body>
+<nav class="topnav"><div class="container">
+  <a class="brand" href="../index.html"><span class="logo">🎲</span> ساحة الصف</a>
+  <div class="navlinks"><a href="../index.html">الرئيسية</a><a href="../index.html#games">الألعاب</a><a href="../questions.html">بنك الأسئلة</a></div>
+</div></nav>
+
+<div class="game-shell">
+  <div class="game-header container">
+    <h1>🧪 سباق الجدول الدوري</h1>
+    <p>لا يحتاج بنك أسئلة! اعرفوا اسم العنصر الكيميائي من رمزه بسرعة لتتقدموا في السباق!</p>
+  </div>
+  <div class="game-stage container" id="stage"></div>
+</div>
+
+<script src="../js/common.js"></script>
+<script>
+const ELEMENTS = [
+  {symbol:'H', name:'الهيدروجين', num:1}, {symbol:'He', name:'الهيليوم', num:2}, {symbol:'Li', name:'الليثيوم', num:3},
+  {symbol:'C', name:'الكربون', num:6}, {symbol:'N', name:'النيتروجين', num:7}, {symbol:'O', name:'الأكسجين', num:8},
+  {symbol:'F', name:'الفلور', num:9}, {symbol:'Ne', name:'النيون', num:10}, {symbol:'Na', name:'الصوديوم', num:11},
+  {symbol:'Mg', name:'المغنيسيوم', num:12}, {symbol:'Al', name:'الألومنيوم', num:13}, {symbol:'Si', name:'السيليكون', num:14},
+  {symbol:'P', name:'الفوسفور', num:15}, {symbol:'S', name:'الكبريت', num:16}, {symbol:'Cl', name:'الكلور', num:17},
+  {symbol:'K', name:'البوتاسيوم', num:19}, {symbol:'Ca', name:'الكالسيوم', num:20}, {symbol:'Fe', name:'الحديد', num:26},
+  {symbol:'Cu', name:'النحاس', num:29}, {symbol:'Zn', name:'الزنك', num:30}, {symbol:'Ag', name:'الفضة', num:47},
+  {symbol:'Au', name:'الذهب', num:79},
+];
+const TRACK = 20;
+let players, progress, turnIdx, curEl;
+
+function init(){
+  const stage = document.getElementById('stage');
+  stage.innerHTML = `<div class="empty-state"><div class="emoji">🧪</div><h3>هيّئ اللعبة</h3><p>بيانات عناصر الجدول الدوري جاهزة مسبقًا — لا تحتاج بنك أسئلة.</p>
+    <button class="btn btn-primary" id="btn-setup">ابدأ الإعداد 🎮</button></div>`;
+  document.getElementById('btn-setup').addEventListener('click', openSetup);
+  openSetup();
+}
+function openSetup(){
+  EGL.openSetupModal({ title:'إعداد سباق الجدول الدوري', allowIndividual:true, allowTeams:true, skipBank:true, minPlayers:2, maxPlayers:4 }, startGame);
+}
+
+function startGame(cfg){
+  players = cfg.players;
+  progress = players.map(()=>0);
+  turnIdx = 0;
+  const stage = document.getElementById('stage');
+  stage.innerHTML = `<div class="track-wrap" id="track-wrap"></div><div id="q-area" style="width:100%;"></div>`;
+  const trackWrap = document.getElementById('track-wrap');
+  trackWrap.innerHTML = players.map((p,i)=>`
+    <div style="position:relative; margin-top:22px;">
+      <div class="lane-name">${p.emoji} ${EGL.escapeHtml(p.name)}</div>
+      <div class="lane" id="lane-${i}"><div class="token" id="token-${i}">${p.emoji}</div></div>
+    </div>`).join('');
+  renderQuestion();
+}
+
+function squarePct(sq){ return 8 + (sq/TRACK) * 88; }
+
+function renderQuestion(){
+  curEl = EGL.pick(ELEMENTS);
+  const wrongs = new Set();
+  while(wrongs.size < 3){
+    const w = EGL.pick(ELEMENTS);
+    if(w.name !== curEl.name) wrongs.add(w.name);
+  }
+  const options = EGL.shuffle([curEl.name, ...wrongs]);
+  const area = document.getElementById('q-area');
+  area.innerHTML = `
+    <div class="qcard">
+      <div class="qmeta"><span class="badge">🎯 دور: ${players[turnIdx].emoji} ${EGL.escapeHtml(players[turnIdx].name)}</span></div>
+      <div class="element-symbol">${curEl.symbol}</div>
+      <div class="element-number">العدد الذري: ${curEl.num}</div>
+      <div class="options" id="opts">${options.map(o=>`<button class="option-btn" data-o="${EGL.escapeHtml(o)}">${EGL.escapeHtml(o)}</button>`).join('')}</div>
+    </div>`;
+  area.querySelectorAll('.option-btn').forEach(btn=>btn.addEventListener('click', ()=>answer(btn.dataset.o)));
+}
+
+function answer(val){
+  const opts = document.querySelectorAll('.option-btn');
+  opts.forEach(b=>b.disabled=true);
+  const correctBtn = document.querySelector(`.option-btn[data-o="${CSS.escape(curEl.name)}"]`);
+  if(correctBtn) correctBtn.classList.add('correct');
+  if(val === curEl.name){
+    progress[turnIdx] = Math.min(TRACK, progress[turnIdx] + 3);
+    EGL.beep('correct');
+    moveToken(turnIdx);
+  } else {
+    const wrongBtn = document.querySelector(`.option-btn[data-o="${CSS.escape(val)}"]`);
+    if(wrongBtn) wrongBtn.classList.add('wrong');
+    EGL.beep('wrong');
+  }
+  setTimeout(()=>{
+    if(progress[turnIdx] >= TRACK){ return finishRace(turnIdx); }
+    turnIdx = (turnIdx+1) % players.length;
+    renderQuestion();
+  }, 1400);
+}
+
+function moveToken(i){
+  const token = document.getElementById('token-'+i);
+  token.style.right = squarePct(progress[i]) + '%';
+}
+
+function finishRace(winnerI){
+  EGL.confetti(150); EGL.beep('win');
+  const area = document.getElementById('q-area');
+  area.innerHTML = `<div class="qcard">
+    <div style="font-size:3rem;">🏆</div>
+    <h2>${players[winnerI].emoji} ${EGL.escapeHtml(players[winnerI].name)} يفوز بسباق الجدول الدوري!</h2>
+    <div style="display:flex; gap:10px; justify-content:center; margin-top:16px;">
+      <button class="btn btn-primary" onclick="location.reload()">🔁 سباق جديد</button>
+      <a class="btn btn-outline" href="../index.html">🏠 الألعاب الأخرى</a>
+    </div>
+  </div>`;
+}
+
+init();
+</script>
+</body>
+</html>

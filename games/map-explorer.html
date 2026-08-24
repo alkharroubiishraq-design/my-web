@@ -1,0 +1,139 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>استكشاف الخريطة — ساحة الصف</title>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>🗺️</text></svg>">
+<link rel="stylesheet" href="../css/style.css">
+<style>
+  .map-wrap{ position:relative; width:100%; max-width:640px; height:340px; margin: 16px auto; border-radius:18px; overflow:hidden;
+    background:
+      linear-gradient(160deg, #1a3a52 0%, #0d2233 100%);
+    background-size: cover; }
+  .map-wrap::before{ content:''; position:absolute; inset:0; background-image: repeating-linear-gradient(0deg, rgba(255,255,255,.05) 0 1px, transparent 1px 40px), repeating-linear-gradient(90deg, rgba(255,255,255,.05) 0 1px, transparent 1px 40px); }
+  .compass{ position:absolute; top:10px; left:10px; font-size:1.6rem; opacity:.7; }
+  .map-pin{ position:absolute; transform: translate(50%,-100%); cursor:pointer; text-align:center; }
+  .map-pin .pin-emoji{ font-size:2.2rem; filter: drop-shadow(0 3px 3px rgba(0,0,0,.5)); }
+  .map-pin .pin-label{ background: var(--surface-2); border-radius:8px; padding:3px 8px; font-size:.72rem; font-weight:800; margin-top:2px; display:inline-block; }
+  .map-pin.correct .pin-label{ background: rgba(43,224,138,.6); }
+  .map-pin.wrong .pin-label{ background: rgba(255,92,92,.6); }
+  .map-pin:disabled, .map-pin.locked{ pointer-events:none; }
+</style>
+</head>
+<body>
+<nav class="topnav"><div class="container">
+  <a class="brand" href="../index.html"><span class="logo">🎲</span> ساحة الصف</a>
+  <div class="navlinks"><a href="../index.html">الرئيسية</a><a href="../index.html#games">الألعاب</a><a href="../questions.html">بنك الأسئلة</a></div>
+</div></nav>
+
+<div class="game-shell">
+  <div class="game-header container">
+    <h1>🗺️ استكشاف الخريطة</h1>
+    <p>انقروا على العلَم الصحيح المنتشر على الخريطة للإجابة عن السؤال!</p>
+  </div>
+  <div class="game-stage container" id="stage"></div>
+</div>
+
+<script src="../js/common.js"></script>
+<script>
+const SPOTS = [ {x:20,y:30}, {x:60,y:20}, {x:80,y:55}, {x:35,y:70}, {x:55,y:50} ];
+let sb, players, activeI, pool, poolIdx, round, ROUNDS;
+
+function init(){
+  const stage = document.getElementById('stage');
+  stage.innerHTML = `<div class="empty-state"><div class="emoji">🗺️</div><h3>هيّئ اللعبة</h3><p>تحتاج بنك أسئلة اختيار من متعدد (تاريخ/جغرافيا مثاليان، لكن أي بنك يعمل).</p>
+    <button class="btn btn-primary" id="btn-setup">ابدأ الإعداد 🎮</button></div>`;
+  document.getElementById('btn-setup').addEventListener('click', openSetup);
+  openSetup();
+}
+function openSetup(){
+  EGL.openSetupModal({ title:'إعداد استكشاف الخريطة', allowIndividual:true, allowTeams:true, needQuestions:true, qType:['mcq'] }, startGame);
+}
+
+function startGame(cfg){
+  const bank = EGL.getBank(cfg.bankId);
+  pool = EGL.shuffle(bank.questions.filter(q=>q.type==='mcq' && q.options.length>=2 && q.options.length<=5));
+  if(!pool.length){ EGL.toast('لا توجد أسئلة اختيار من متعدد مناسبة في هذا البنك'); return; }
+  poolIdx = 0;
+  players = cfg.players;
+  activeI = 0;
+  round = 0;
+  ROUNDS = Math.min(10, pool.length);
+  const stage = document.getElementById('stage');
+  stage.innerHTML = `<div id="sb-wrap" class="scoreboard"></div><div id="round-badge" class="badge" style="display:block; text-align:center; margin:8px 0;"></div><div id="game-area"></div>`;
+  sb = new EGL.Scoreboard(document.getElementById('sb-wrap'), players);
+  nextRound();
+}
+
+function nextRound(){
+  round++;
+  if(round > ROUNDS || poolIdx >= pool.length){ return showResults(); }
+  document.getElementById('round-badge').textContent = `🗺️ الجولة ${round} / ${ROUNDS}`;
+  renderRound();
+}
+
+function renderRound(){
+  const q = pool[poolIdx++];
+  sb.setActive(activeI);
+  const shuffledOpts = EGL.shuffle(q.options.map((o,i)=>({text:o, correct:i===q.correctIndex})));
+  window._meOpts = shuffledOpts;
+  const area = document.getElementById('game-area');
+  area.innerHTML = `
+    <div class="qcard">
+      <div class="qmeta"><span class="badge">دور: ${EGL.escapeHtml(players[activeI].name)}</span></div>
+      <div class="qtext">${EGL.escapeHtml(q.text)}</div>
+    </div>
+    <div class="map-wrap" id="map"><div class="compass">🧭</div></div>`;
+  const map = document.getElementById('map');
+  shuffledOpts.forEach((o,i)=>{
+    const spot = SPOTS[i % SPOTS.length];
+    const pin = document.createElement('div');
+    pin.className = 'map-pin';
+    pin.dataset.i = i;
+    pin.style.right = spot.x + '%';
+    pin.style.top = spot.y + '%';
+    pin.innerHTML = `<div class="pin-emoji">📍</div><div class="pin-label">${EGL.escapeHtml(o.text)}</div>`;
+    pin.addEventListener('click', ()=>pickPin(i));
+    map.appendChild(pin);
+  });
+}
+
+function pickPin(i){
+  document.querySelectorAll('.map-pin').forEach(p=>p.classList.add('locked'));
+  const opt = window._meOpts[i];
+  const el = document.querySelector(`.map-pin[data-i="${i}"]`);
+  if(opt.correct){
+    el.classList.add('correct');
+    sb.addScore(activeI, 10);
+    EGL.beep('correct'); EGL.confetti(30);
+  } else {
+    el.classList.add('wrong');
+    const correctI = window._meOpts.findIndex(o=>o.correct);
+    const correctEl = document.querySelector(`.map-pin[data-i="${correctI}"]`);
+    if(correctEl) correctEl.classList.add('correct');
+    EGL.beep('wrong');
+  }
+  setTimeout(()=>{ activeI = (activeI+1) % players.length; nextRound(); }, 1700);
+}
+
+function showResults(){
+  EGL.confetti(100); EGL.beep('win');
+  const ranking = sb.ranking();
+  const stage = document.getElementById('stage');
+  stage.innerHTML = `<div class="qcard">
+    <div style="font-size:3rem;">🏆</div><h2>انتهت الرحلة!</h2>
+    <div class="scoreboard" style="justify-content:center;">
+      ${ranking.map((p,r)=>`<div class="player-chip ${r===0?'active':''}"><div style="font-size:1.4rem;">${r===0?'🥇':r===1?'🥈':r===2?'🥉':p.emoji}</div><div class="pname">${EGL.escapeHtml(p.name)}</div><div class="pscore">${p.score}</div></div>`).join('')}
+    </div>
+    <div style="display:flex; gap:10px; justify-content:center; margin-top:16px;">
+      <button class="btn btn-primary" onclick="location.reload()">🔁 لعب مرة أخرى</button>
+      <a class="btn btn-outline" href="../index.html">🏠 الألعاب الأخرى</a>
+    </div>
+  </div>`;
+}
+
+init();
+</script>
+</body>
+</html>
