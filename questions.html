@@ -274,9 +274,10 @@ function renderAiTab(el, bank){
         <p class="hint">🔒 المفتاح يُحفظ على متصفحك فقط ويُستخدم للاتصال المباشر بواجهة Anthropic. احصل على مفتاح من <a href="https://console.anthropic.com/" target="_blank" style="color:var(--accent)">console.anthropic.com</a></p>
       </fieldset>
 
-      <label>المادة التعليمية (الصق نصًا أو ارفع ملف)</label>
+      <label>المادة التعليمية (الصق نصًا، أو ارفع ملف نصي/PDF، أو صورة لصفحة/سبورة)</label>
       <textarea id="ai-source" placeholder="الصق هنا نص الدرس، الفصل، أو الملخص..."></textarea>
-      <input type="file" id="ai-file" accept=".txt,.md,.pdf">
+      <input type="file" id="ai-file" accept=".txt,.md,.pdf,image/*">
+      <p class="hint">📷 يدعم الاستيراد الذكي التعرف الضوئي (OCR) على الصور وملفات PDF الممسوحة ضوئيًا — صوّر صفحة من الكتاب أو ورقة عمل مباشرة وسنحوّلها لنص تلقائيًا.</p>
       <p class="hint" id="ai-file-status"></p>
 
       <div class="field-row">
@@ -318,15 +319,29 @@ function renderAiTab(el, bank){
     const file = e.target.files[0];
     if(!file) return;
     const statusEl = el.querySelector('#ai-file-status');
-    statusEl.textContent = '⏳ جاري استخراج النص من الملف...';
     try{
+      let text = '', viaOCR = false;
       if(file.type === 'application/pdf' || file.name.endsWith('.pdf')){
-        extractedFileText = await extractPdfText(file);
+        statusEl.textContent = '⏳ جاري استخراج النص من الملف...';
+        const result = await extractPdfTextOrOCR(file, pct => { statusEl.textContent = `🔎 هذا الملف ممسوح ضوئيًا (بلا طبقة نص) — جاري التعرف الضوئي على صفحاته... ${pct}%`; });
+        text = result.text; viaOCR = result.viaOCR;
+      } else if(file.type.startsWith('image/')){
+        statusEl.textContent = '🔎 جاري التعرف الضوئي على النص في الصورة... 0%';
+        text = await extractImageTextOCR(file, pct => { statusEl.textContent = `🔎 جاري التعرف الضوئي على النص في الصورة... ${pct}%`; });
+        viaOCR = true;
       } else {
-        extractedFileText = await file.text();
+        statusEl.textContent = '⏳ جاري استخراج النص من الملف...';
+        text = await file.text();
       }
+      if(!text.trim()){
+        statusEl.textContent = '⚠️ لم يُعثر على نص واضح في الملف — جرّب صورة أوضح إضاءةً، أو الصق النص يدويًا.';
+        return;
+      }
+      extractedFileText = text;
       el.querySelector('#ai-source').value = (el.querySelector('#ai-source').value + '\n' + extractedFileText).trim();
-      statusEl.textContent = `✅ تم استخراج ${extractedFileText.length.toLocaleString('ar')} حرفًا من "${file.name}"`;
+      statusEl.textContent = viaOCR
+        ? `✅ تعرّفنا ضوئيًا على ${extractedFileText.length.toLocaleString('ar')} حرفًا من "${file.name}" — راجع النص أدناه فقد يحتوي أخطاء تعرّف بسيطة`
+        : `✅ تم استخراج ${extractedFileText.length.toLocaleString('ar')} حرفًا من "${file.name}"`;
     }catch(err){
       statusEl.textContent = '⚠️ تعذّر قراءة الملف. جرّب لصق النص يدويًا.';
       console.error(err);
@@ -389,11 +404,24 @@ function renderAiPreview(el, bank){
   });
 }
 
-async function extractPdfText(file){
+async function ensurePdfJs(){
   if(!window.pdfjsLib){
     await loadScript('https://cdnjs.cloudflare.com/ajax/libs/pdf.js/4.0.379/pdf.min.js');
     window.pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/4.0.379/pdf.worker.min.js';
   }
+}
+async function ensureTesseract(){
+  if(!window.Tesseract){
+    await loadScript('https://cdn.jsdelivr.net/npm/tesseract.js@5.0.4/dist/tesseract.min.js');
+  }
+}
+
+// يستخرج طبقة النص من ملف PDF عاديًا عبر pdf.js. إذا لم توجد طبقة نص (ملف PDF
+// ناتج عن مسح ضوئي/تصوير صفحات، وهي حالة شائعة جدًا في الأوراق الصفية) نلجأ
+// تلقائيًا للتعرّف الضوئي (OCR) عبر رسم كل صفحة على قماش (canvas) ثم تمريرها
+// لـ Tesseract — بذلك يعمل الاستيراد الذكي مع ملفات PDF الممسوحة ضوئيًا أيضًا.
+async function extractPdfTextOrOCR(file, onOcrProgress){
+  await ensurePdfJs();
   const buf = await file.arrayBuffer();
   const pdf = await window.pdfjsLib.getDocument({data: buf}).promise;
   let text = '';
@@ -403,8 +431,38 @@ async function extractPdfText(file){
     text += content.items.map(it=>it.str).join(' ') + '\n';
     if(text.length > 40000) break;
   }
-  return text.slice(0, 40000);
+  text = text.trim();
+  if(text.length >= 30){
+    return { text: text.slice(0, 40000), viaOCR: false };
+  }
+
+  await ensureTesseract();
+  let ocrText = '';
+  const pageCount = Math.min(pdf.numPages, 15); // التعرف الضوئي أبطأ بكثير من استخراج النص، لذا نحدّ عدد الصفحات
+  for(let i=1;i<=pageCount;i++){
+    const page = await pdf.getPage(i);
+    const viewport = page.getViewport({ scale: 2 });
+    const canvas = document.createElement('canvas');
+    canvas.width = viewport.width; canvas.height = viewport.height;
+    await page.render({ canvasContext: canvas.getContext('2d'), viewport }).promise;
+    const { data } = await window.Tesseract.recognize(canvas, 'ara+eng', {
+      logger: m => { if(onOcrProgress && m.status === 'recognizing text') onOcrProgress(Math.round(((i-1)/pageCount + (m.progress||0)/pageCount) * 100)); }
+    });
+    ocrText += (data.text||'') + '\n';
+    if(ocrText.length > 40000) break;
+  }
+  return { text: ocrText.trim().slice(0, 40000), viaOCR: true };
 }
+
+// تعرّف ضوئي مباشر على صورة (مثلًا صورة ملتقطة لصفحة كتاب أو سبورة).
+async function extractImageTextOCR(file, onProgress){
+  await ensureTesseract();
+  const { data } = await window.Tesseract.recognize(file, 'ara+eng', {
+    logger: m => { if(onProgress && m.status === 'recognizing text') onProgress(Math.round((m.progress||0)*100)); }
+  });
+  return (data.text || '').trim().slice(0, 40000);
+}
+
 function loadScript(src){
   return new Promise((resolve,reject)=>{
     const s = document.createElement('script');
