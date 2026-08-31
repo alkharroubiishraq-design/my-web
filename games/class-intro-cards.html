@@ -1,0 +1,137 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>بطاقة التعارف — ساحة الصف</title>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>🌟</text></svg>">
+<link rel="stylesheet" href="../css/style.css">
+<style>
+  .intro-form label{ margin-top:12px; }
+  .card-reveal{ text-align:center; animation: cardPop .5s ease; }
+  @keyframes cardPop{ from{ transform: scale(.7) rotateY(30deg); opacity:0; } to{ transform: scale(1) rotateY(0); opacity:1; } }
+  .card-reveal .cr-emoji{ font-size:3rem; }
+  .card-reveal .cr-name{ font-size:1.5rem; font-weight:900; margin: 6px 0 16px; color: var(--accent-2); }
+  .cr-field{ background: var(--surface-2); border-radius:12px; padding:12px 16px; margin-bottom:10px; text-align:right; }
+  .cr-field .cr-label{ font-size:.75rem; color: var(--text-dim); font-weight:800; margin-bottom:4px; }
+  .cr-field .cr-value{ font-size:1.05rem; font-weight:700; }
+  .wall-grid{ display:flex; flex-wrap:wrap; gap:14px; justify-content:center; margin: 18px 0; }
+  .wall-card{ background: var(--surface-2); border-radius:14px; padding:14px; width:220px; box-shadow: var(--shadow); border-top:4px solid var(--accent-2); }
+  .wall-card .wc-head{ font-weight:900; text-align:center; margin-bottom:8px; }
+  .wall-card .wc-line{ font-size:.78rem; margin-bottom:6px; }
+  .wall-card .wc-line b{ color: var(--accent-2); }
+</style>
+</head>
+<body>
+<nav class="topnav"><div class="container">
+  <a class="brand" href="../index.html"><span class="logo">🎲</span> ساحة الصف</a>
+  <div class="navlinks"><a href="../index.html">الرئيسية</a><a href="../index.html#games">الألعاب</a><a href="../questions.html">بنك الأسئلة</a></div>
+</div></nav>
+
+<div class="game-shell">
+  <div class="game-header container">
+    <h1>🌟 بطاقة التعارف — بداية العام</h1>
+    <p>لعبة كسر جمود مثالية لأول حصة بالعام الدراسي — المعلّمة/المعلّم والطلاب يتعارفون معًا ببطاقات تعريف ممتعة، بطاقة بطاقة!</p>
+  </div>
+  <div class="game-stage container" id="stage"></div>
+</div>
+
+<script src="../js/common.js"></script>
+<script>
+const PROMPTS = [
+  { icon:'👋', label:'اسمي أو اللقب اللي حاب/ة أُنادى فيه' },
+  { icon:'❤️', label:'أكثر شي بحبه (هواية، أكلة، لون...)' },
+  { icon:'😄', label:'معلومة طريفة ما يعرفها عني أكثر أحد' },
+  { icon:'🎯', label:'شي بتمنى أحققه هالسنة الدراسية' },
+];
+let players, activeI, cards;
+
+function init(){
+  const stage = document.getElementById('stage');
+  stage.innerHTML = `<div class="empty-state"><div class="emoji">🌟</div><h3>هيّئ اللعبة</h3><p>لا تحتاج بنك أسئلة! أضيفي نفسك أولًا كأول اسم بالقائمة (مثلًا: "الأستاذة سارة") لتكوني قدوة وتبدئي أنتِ ببطاقتك، ثم أضيفي أسماء الطلاب بالترتيب.</p>
+    <button class="btn btn-primary" id="btn-setup">ابدأ الإعداد 🎮</button></div>`;
+  document.getElementById('btn-setup').addEventListener('click', openSetup);
+  openSetup();
+}
+function openSetup(){
+  EGL.openSetupModal({ title:'إعداد بطاقة التعارف', allowIndividual:true, allowTeams:false, skipBank:true, minPlayers:2, maxPlayers:35, playersLabel:'عدد المشاركين (المعلّمة + الطلاب)' }, startGame);
+}
+
+function startGame(cfg){
+  players = cfg.players;
+  activeI = 0;
+  cards = players.map(()=>null);
+  const stage = document.getElementById('stage');
+  stage.innerHTML = `<div class="badge" id="progress-badge" style="display:block; text-align:center; margin-bottom:8px;"></div><div id="round-area"></div>`;
+  startTurn();
+}
+
+function updateProgress(){
+  document.getElementById('progress-badge').textContent = `🌟 البطاقة ${activeI+1} من ${players.length}`;
+}
+
+function startTurn(){
+  updateProgress();
+  const p = players[activeI];
+  const area = document.getElementById('round-area');
+  area.innerHTML = `
+    <div class="qcard intro-form">
+      <p style="text-align:center; font-weight:800;">دور: ${p.emoji} ${EGL.escapeHtml(p.name)}</p>
+      ${PROMPTS.map((pr,i)=>`<label>${pr.icon} ${EGL.escapeHtml(pr.label)}</label><input type="text" id="pf-${i}" maxlength="60" placeholder="اكتب هنا...">`).join('')}
+      <button class="btn btn-gold btn-block" id="btn-reveal-card" style="margin-top:16px;">🎴 اعرض البطاقة!</button>
+    </div>`;
+  document.getElementById('btn-reveal-card').addEventListener('click', revealCard);
+}
+
+function revealCard(){
+  const p = players[activeI];
+  const values = PROMPTS.map((pr,i)=>{
+    const v = document.getElementById('pf-'+i).value.trim();
+    return v || '🤫 سرّ!';
+  });
+  cards[activeI] = values;
+  EGL.beep('win'); EGL.confetti(40);
+  const area = document.getElementById('round-area');
+  area.innerHTML = `
+    <div class="qcard card-reveal">
+      <div class="cr-emoji">${p.emoji}</div>
+      <div class="cr-name">${EGL.escapeHtml(p.name)}</div>
+      ${PROMPTS.map((pr,i)=>`
+        <div class="cr-field">
+          <div class="cr-label">${pr.icon} ${EGL.escapeHtml(pr.label)}</div>
+          <div class="cr-value">${EGL.escapeHtml(values[i])}</div>
+        </div>`).join('')}
+      <button class="btn btn-primary btn-block" id="btn-next-card" style="margin-top:12px;">➡️ ${activeI+1>=players.length ? 'إنهاء وعرض حائط التعارف 🏁' : 'البطاقة التالية'}</button>
+    </div>`;
+  document.getElementById('btn-next-card').addEventListener('click', ()=>{
+    activeI++;
+    if(activeI >= players.length){ showWall(); return; }
+    startTurn();
+  });
+}
+
+function showWall(){
+  EGL.confetti(150); EGL.beep('win');
+  const stage = document.getElementById('stage');
+  stage.innerHTML = `<div class="qcard" style="text-align:center;">
+    <div style="font-size:3rem;">🌟</div>
+    <h2>حائط تعارف صفّنا الجديد!</h2>
+    <p class="hint">أهلًا بالجميع في عام دراسي جميل معًا 💜</p>
+  </div>
+  <div class="wall-grid">
+    ${players.map((p,i)=>`
+      <div class="wall-card">
+        <div class="wc-head">${p.emoji} ${EGL.escapeHtml(p.name)}</div>
+        ${PROMPTS.map((pr,pi)=>`<div class="wc-line"><b>${pr.icon}</b> ${EGL.escapeHtml(cards[i][pi])}</div>`).join('')}
+      </div>`).join('')}
+  </div>
+  <div style="display:flex; gap:10px; justify-content:center; margin-top:16px;">
+    <button class="btn btn-primary" onclick="location.reload()">🔁 من جديد</button>
+    <a class="btn btn-outline" href="../index.html">🏠 الألعاب الأخرى</a>
+  </div>`;
+}
+
+init();
+</script>
+</body>
+</html>
