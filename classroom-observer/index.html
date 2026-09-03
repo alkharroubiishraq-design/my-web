@@ -5,16 +5,41 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
 <title>مراقب الحصة الذكي</title>
 <meta name="description" content="نموذج أولي يسجل الحصة الصفية (كاميرا + شاشة اللوح الإلكتروني) ويحللها بالذكاء الاصطناعي لإعداد تقرير أداء للمعلم" />
-<script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
-<script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
-<script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+<script crossorigin src="https://cdn.jsdelivr.net/npm/react@18/umd/react.production.min.js"></script>
+<script crossorigin src="https://cdn.jsdelivr.net/npm/react-dom@18/umd/react-dom.production.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@babel/standalone@7/babel.min.js"></script>
 <style>
   html, body { margin: 0; padding: 0; background: #24402f; }
+  #root:empty::before {
+    content: "جاري تحميل الصفحة… (قد يأخذ بضع ثوانٍ على إنترنت بطيء)";
+    display: block;
+    color: #dfe8e0;
+    font-family: Tahoma, Arial, sans-serif;
+    text-align: center;
+    padding: 40px 20px;
+    direction: rtl;
+  }
   #root { min-height: 100vh; }
 </style>
 </head>
 <body>
 <div id="root"></div>
+<script>
+  setTimeout(function () {
+    var rootEl = document.getElementById("root");
+    if (rootEl && !rootEl.hasChildNodes()) {
+      rootEl.innerHTML =
+        '<div style="direction:rtl;text-align:center;padding:40px 20px;color:#fff;font-family:Tahoma,Arial,sans-serif;max-width:520px;margin:0 auto;">' +
+        '<h2 style="margin-bottom:12px;">تعذّر تحميل الصفحة ⚠️</h2>' +
+        '<p style="line-height:1.8;">جرّبي:</p>' +
+        '<ul style="text-align:right;line-height:1.9;">' +
+        '<li>التأكد من الاتصال بالإنترنت (يفضّل واي فاي بدل بيانات الجوال)</li>' +
+        '<li>إعادة تحميل الصفحة (Refresh)</li>' +
+        '<li>فتحها من متصفح Chrome أو Safari محدَّث</li>' +
+        "</ul></div>";
+    }
+  }, 12000);
+</script>
 <script type="text/babel" data-presets="react">
 const { useState, useRef, useEffect, useCallback } = React;
 
